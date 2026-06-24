@@ -4,12 +4,15 @@
 #   claude   (default) — ~/.claude/skills/ + ~/.claude.json (MCP)
 #   codex                — ~/.codex/config.toml (MCP only; skills via plugin marketplace)
 #   opencode             — ~/.config/opencode/skills/ + ~/.config/opencode/opencode.json (MCP)
+#
+# MCP server runs via uv (auto-manages Python + fastmcp). Users only need uv installed:
+#   curl -LsSf https://astral.sh/uv/install.sh | sh
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_SRC="$REPO_ROOT/skills"
-MCP_SERVER_SRC="$SKILLS_SRC/sr-design/mcp_server.py"
+MCP_SERVER_PY="$SKILLS_SRC/sr-design/mcp_server.py"
 
 TARGET="claude"  # claude | codex | opencode
 SCOPE=""         # user | project
@@ -35,6 +38,9 @@ Targets:
   claude     skills → ~/.claude/skills/         MCP → ~/.claude.json
   codex      skills via /plugins marketplace      MCP → ~/.codex/config.toml
   opencode   skills → ~/.config/opencode/skills/  MCP → ~/.config/opencode/opencode.json
+
+Prerequisites:
+  uv (install: curl -LsSf https://astral.sh/uv/install.sh | sh)
 
 Without flags, runs interactively and prompts for each choice.
 EOF
@@ -115,6 +121,14 @@ resolve_paths() {
 }
 resolve_paths
 
+# For claude/opencode, the MCP runs the installed copy of mcp_server.py.
+# For codex, skills aren't installed here — point MCP at the source file in the repo.
+if [[ "$TARGET" == "codex" ]]; then
+  MCP_RUN_TARGET="$MCP_SERVER_PY"
+else
+  MCP_RUN_TARGET="$SKILLS_DST/sr-design/mcp_server.py"
+fi
+
 # --- Uninstall ---------------------------------------------------------------
 if [[ $UNINSTALL -eq 1 ]]; then
   echo "Uninstalling Awesome-Agent-Workflow ($TARGET, $SCOPE scope)..."
@@ -130,7 +144,7 @@ if [[ $UNINSTALL -eq 1 ]]; then
   fi
   case "$CONFIG_FMT" in
     claude-json)
-      python3 - "$CONFIG_FILE" "$MCP_SCOPE_KEY" <<'PY'
+      uv run python - "$CONFIG_FILE" "$MCP_SCOPE_KEY" <<'PY'
 import json, sys
 path, scope_key = sys.argv[1], sys.argv[2]
 data = json.load(open(path))
@@ -150,7 +164,7 @@ else:
 PY
       ;;
     opencode-json)
-      python3 - "$CONFIG_FILE" <<'PY'
+      uv run python - "$CONFIG_FILE" <<'PY'
 import json, os, sys
 path = sys.argv[1]
 if not os.path.exists(path):
@@ -166,14 +180,13 @@ else:
 PY
       ;;
     codex-toml)
-      python3 - "$CONFIG_FILE" <<'PY'
+      uv run python - "$CONFIG_FILE" <<'PY'
 import re, sys
 path = sys.argv[1]
 try:
     content = open(path).read()
 except FileNotFoundError:
     print("  config not found, skipping"); sys.exit()
-# Remove the [mcp_servers.question-tracker] block and its trailing keys
 pattern = re.compile(
     r'\n?\[mcp_servers\.question-tracker\]\n(?:[^\[]*?)(?=\n\[|\Z)',
     re.DOTALL
@@ -192,9 +205,13 @@ PY
 fi
 
 # --- Sanity checks -----------------------------------------------------------
-[[ -d "$SKILLS_SRC" ]] || { echo "skills/ not found at $SKILLS_SRC"; exit 1; }
-[[ -f "$MCP_SERVER_SRC" ]] || { echo "mcp_server.py not found at $MCP_SERVER_SRC"; exit 1; }
-command -v python3 >/dev/null 2>&1 || { echo "python3 not found. Install Python 3.8+ first." >&2; exit 1; }
+[[ -d "$SKILLS_SRC" ]]   || { echo "skills/ not found at $SKILLS_SRC"; exit 1; }
+[[ -f "$MCP_SERVER_PY" ]] || { echo "mcp_server.py not found at $MCP_SERVER_PY"; exit 1; }
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv not found. Install it first:" >&2
+  echo "  curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+  exit 1
+fi
 
 # --- Install skills ----------------------------------------------------------
 if [[ $MCP_ONLY -eq 0 && -n "$SKILLS_DST" ]]; then
@@ -232,26 +249,16 @@ elif [[ "$TARGET" == "codex" ]]; then
   echo
 fi
 
-# --- Install Python deps -----------------------------------------------------
-echo
-echo "Checking fastmcp..."
-if ! python3 -c "import fastmcp" 2>/dev/null; then
-  python3 -m pip install --quiet fastmcp
-fi
-python3 -c "import fastmcp; print(f'  fastmcp {fastmcp.__version__} OK')" || {
-  echo "fastmcp install failed. Register MCP manually later." >&2
-}
-
-# --- Register MCP server -----------------------------------------------------
+# --- Register MCP server (via uv) -------------------------------------------
 echo
 echo "Registering MCP server (question-tracker, $TARGET/$SCOPE)..."
 case "$CONFIG_FMT" in
   claude-json)
-    python3 - "$CONFIG_FILE" "$MCP_SCOPE_KEY" "$MCP_SERVER_SRC" <<'PY'
+    uv run python - "$CONFIG_FILE" "$MCP_SCOPE_KEY" "$MCP_RUN_TARGET" <<'PY'
 import json, os, sys
 path, scope_key, server_path = sys.argv[1], sys.argv[2], sys.argv[3]
 data = {} if not os.path.exists(path) else json.load(open(path))
-entry = {"command": "python3", "args": [server_path], "env": {}}
+entry = {"command": "uv", "args": ["run", "--with", "fastmcp", "python", server_path], "env": {}}
 if scope_key == "__global__":
     data.setdefault("mcpServers", {})["question-tracker"] = entry
 else:
@@ -262,14 +269,14 @@ print(f"  registered in {path}")
 PY
     ;;
   opencode-json)
-    python3 - "$CONFIG_FILE" "$MCP_SERVER_SRC" <<'PY'
+    uv run python - "$CONFIG_FILE" "$MCP_RUN_TARGET" <<'PY'
 import json, os, sys
 path, server_path = sys.argv[1], sys.argv[2]
 data = {} if not os.path.exists(path) else json.load(open(path))
 data.setdefault("$schema", "https://opencode.ai/config.json")
 data.setdefault("mcp", {})["question-tracker"] = {
     "type": "local",
-    "command": ["python3", server_path],
+    "command": ["uv", "run", "--with", "fastmcp", "python", server_path],
     "enabled": True,
     "environment": {},
 }
@@ -279,18 +286,21 @@ print(f"  registered in {path}")
 PY
     ;;
   codex-toml)
-    python3 - "$CONFIG_FILE" "$MCP_SERVER_SRC" <<'PY'
+    uv run python - "$CONFIG_FILE" "$MCP_RUN_TARGET" <<'PY'
 import os, sys, re
 path, server_path = sys.argv[1], sys.argv[2]
 content = ""
 if os.path.exists(path):
     content = open(path).read()
-# Drop any pre-existing block to keep idempotent.
 content = re.sub(
     r'\n?\[mcp_servers\.question-tracker\]\n(?:[^\[]*?)(?=\n\[|\Z)',
     '', content, flags=re.DOTALL
 )
-block = f"\n[mcp_servers.question-tracker]\ncommand = \"python3\"\nargs = [\"{server_path}\"]\n"
+block = (
+    f"\n[mcp_servers.question-tracker]\n"
+    f'command = "uv"\n'
+    f'args = ["run", "--with", "fastmcp", "python", "{server_path}"]\n'
+)
 if content and not content.endswith("\n"):
     content += "\n"
 content += block
@@ -317,10 +327,16 @@ if [[ -n "$SKILLS_DST" && $MCP_ONLY -eq 0 ]]; then
 elif [[ "$TARGET" == "codex" ]]; then
   echo "Skills: install via Codex /plugins (marketplace)."
 fi
-echo "MCP server:"
+echo "MCP server script:"
+if [[ -f "$MCP_RUN_TARGET" ]]; then
+  echo "  [OK] $MCP_RUN_TARGET"
+else
+  echo "  [MISSING] $MCP_RUN_TARGET" >&2
+fi
+echo "MCP server registration:"
 case "$CONFIG_FMT" in
   claude-json)
-    python3 - "$CONFIG_FILE" "$MCP_SCOPE_KEY" <<'PY'
+    uv run python - "$CONFIG_FILE" "$MCP_SCOPE_KEY" <<'PY'
 import json, sys
 path, scope_key = sys.argv[1], sys.argv[2]
 data = json.load(open(path))
@@ -332,7 +348,7 @@ print(f"  [{'OK' if found else 'MISSING'}] question-tracker")
 PY
     ;;
   opencode-json)
-    python3 - "$CONFIG_FILE" <<'PY'
+    uv run python - "$CONFIG_FILE" <<'PY'
 import json, os, sys
 path = sys.argv[1]
 found = False
@@ -342,7 +358,7 @@ print(f"  [{'OK' if found else 'MISSING'}] question-tracker")
 PY
     ;;
   codex-toml)
-    python3 - "$CONFIG_FILE" <<'PY'
+    uv run python - "$CONFIG_FILE" <<'PY'
 import os, re, sys
 path = sys.argv[1]
 found = False
@@ -355,6 +371,7 @@ esac
 
 echo
 echo "Done. Restart $TARGET to pick up changes."
+echo "(First MCP launch will be slow — uv bootstraps Python + fastmcp once, then cached.)"
 [[ "$TARGET" == "claude" ]] && echo "Try triggering with: 进入工作流"
 [[ "$TARGET" == "opencode" ]] && echo "Try triggering with: 进入工作流"
 [[ "$TARGET" == "codex" ]] && echo "Install the plugin via /plugins, then trigger with: 进入工作流"

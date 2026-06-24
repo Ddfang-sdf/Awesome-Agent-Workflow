@@ -3,7 +3,10 @@
 ## Prerequisites
 
 - [OpenCode.ai](https://opencode.ai) installed
-- Python 3.8+ with `pip`
+- [uv](https://docs.astral.sh/uv/) installed (manages Python + deps automatically):
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
 - This repo cloned locally
 
 ## Quick install
@@ -23,8 +26,7 @@ Or interactively (the script will prompt for scope and method):
 ## What the installer does
 
 1. Installs the 13 skills to `~/.config/opencode/skills/` (or `./.opencode/skills/` for project scope)
-2. Installs the `fastmcp` Python dependency
-3. Registers the `question-tracker` MCP server in `~/.config/opencode/opencode.json`:
+2. Registers the `question-tracker` MCP server in `~/.config/opencode/opencode.json`, run via `uv`:
 
 ```json
 {
@@ -32,12 +34,14 @@ Or interactively (the script will prompt for scope and method):
   "mcp": {
     "question-tracker": {
       "type": "local",
-      "command": ["python3", "/abs/path/to/skills/sr-design/mcp_server.py"],
+      "command": ["uv", "run", "--with", "fastmcp", "python", "/abs/path/to/skills/sr-design/mcp_server.py"],
       "enabled": true
     }
   }
 }
 ```
+
+`uv run --with fastmcp` auto-installs a portable Python and `fastmcp` on first launch, then caches them — no manual Python/pip setup needed.
 
 ## Verify
 
@@ -60,13 +64,7 @@ The `aaw-workflow` skill should trigger and start the SDD workflow.
 
    > Note: OpenCode also auto-discovers skills from `~/.claude/skills/` and `.claude/skills/`, so if you already installed for Claude Code at user level, the skills are already visible to OpenCode — only the MCP step below is needed.
 
-2. Install fastmcp:
-
-   ```bash
-   pip install fastmcp
-   ```
-
-3. Add the MCP server to `~/.config/opencode/opencode.json`:
+2. Add the MCP server to `~/.config/opencode/opencode.json`:
 
    ```json
    {
@@ -74,7 +72,7 @@ The `aaw-workflow` skill should trigger and start the SDD workflow.
      "mcp": {
        "question-tracker": {
          "type": "local",
-         "command": ["python3", "/abs/path/to/skills/sr-design/mcp_server.py"],
+         "command": ["uv", "run", "--with", "fastmcp", "python", "/abs/path/to/skills/sr-design/mcp_server.py"],
          "enabled": true
        }
      }

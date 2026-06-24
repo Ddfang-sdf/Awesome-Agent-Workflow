@@ -18,6 +18,13 @@
     "tdd"
   ],
   "skills": "./skills/",
+  "mcpServers": {
+    "question-tracker": {
+      "command": "uv",
+      "args": ["run", "--with", "fastmcp", "python", "${CODEX_PLUGIN_ROOT}/skills/sr-design/mcp_server.py"],
+      "env": {}
+    }
+  },
   "interface": {
     "displayName": "Awesome Agent Workflow",
     "shortDescription": "SDD-based development workflow from SR design to code",

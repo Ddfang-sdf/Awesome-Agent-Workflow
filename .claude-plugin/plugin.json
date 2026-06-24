@@ -11,8 +11,8 @@
   "skills": ["./skills"],
   "mcpServers": {
     "question-tracker": {
-      "command": "python3",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/skills/sr-design/mcp_server.py"],
+      "command": "uv",
+      "args": ["run", "--with", "fastmcp", "python", "${CLAUDE_PLUGIN_ROOT}/skills/sr-design/mcp_server.py"],
       "env": {}
     }
   }
