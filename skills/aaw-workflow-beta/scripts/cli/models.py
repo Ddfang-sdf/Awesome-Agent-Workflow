@@ -27,6 +27,7 @@ class Step:
     output: list[str] = field(default_factory=list)
     available_next: list[str] = field(default_factory=list)
     next: list[int] = field(default_factory=list)
+    successor: dict | None = None  # confirm steps only: recipe for generating real successors
 
     @classmethod
     def from_dict(cls, data: dict) -> "Step":
@@ -41,6 +42,7 @@ class Step:
             output=data.get("output", []),
             available_next=data.get("available_next", []),
             next=data.get("next", []),
+            successor=data.get("successor", None),
         )
 
     def to_dict(self) -> dict:
@@ -55,6 +57,7 @@ class Step:
             "output": self.output,
             "available_next": self.available_next,
             "next": self.next,
+            "successor": self.successor,
         }
 
     def is_terminal(self) -> bool:
