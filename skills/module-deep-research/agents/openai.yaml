@@ -1,0 +1,4 @@
+interface:
+  display_name: "模块深度研究"
+  short_description: "主动研究模块，建立可复用的模块认知资产。"
+  default_prompt: "使用 $module-deep-research 深入研究指定模块，只读代码、测试、文档和配置，并将模块认知资产建立到 .sdd/modules/{模块名}/。在一个会话内自循环推进研究，按队列驱动持续深挖，直到无法从仓库只读取证为止。"

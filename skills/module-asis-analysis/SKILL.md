@@ -334,12 +334,9 @@ ASIS 是一条「边查证边写入」的分阶段流水线：先把需求转化
 
 如果未达到质量标准，继续分析；如果达到阻塞条件，则按阻塞与降级输出规则写入同名前缀 `.context.md`。
 
-## 引用文件
-
-- 使用 `<skill-dir>/references/asis-output-template.md` 组织 `.context.md` 中的 ASIS 证据、结论和过程章节。
-- 使用 `<skill-dir>/references/evidence-checklist.md` 将仓库证据、配置、测试和隐藏约束检查项转化为 ASIS 探索问题。
-
 ## 完成后回调
+
+本 skill 产出同名前缀 `.context.md`（含 ASIS 证据、结论编号、需求/AR 映射、待确认问题和阻塞项），交付给 `$module-tobe-design`。TOBE 读取 `.context.md` 中的 ASIS 结论编号、证据编号和需求/AR 映射作为目标设计的现状输入。
 
 > 若不处于 aaw-workflow-beta 编排中，请忽略此节。
 
@@ -351,3 +348,9 @@ ASIS 是一条「边查证边写入」的分阶段流水线：先把需求转化
 4. 否则 → 正常执行下一步，询问用户是否继续
 
 不记得 SR 号 → 先 `aaw status --json`
+
+
+## 引用文件
+
+- 使用 `<skill-dir>/references/asis-output-template.md` 组织 `.context.md` 中的 ASIS 证据、结论和过程章节。
+- 使用 `<skill-dir>/references/evidence-checklist.md` 将仓库证据、配置、测试和隐藏约束检查项转化为 ASIS 探索问题。
