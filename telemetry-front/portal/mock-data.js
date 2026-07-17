@@ -43,14 +43,23 @@
 
   const RANGE_DAYS = { "1d":1, "3d":3, "7d":7, "30d":30, "60d":60, "90d":90, "180d":180, "365d":365 };
 
-  // AAW 工作流步骤目录（契约 §6.5 step_type）。
+  // AAW 工作流步骤目录 — 与 skills/aaw-workflow/scripts/cli/definitions/ 下的
+  // 节点 yaml（step_type = 文件名）及 flow.yaml 的边顺序保持一致。
+  // 唯一的门禁节点是 module-design-gate（choice 边，fail/blocked 原地拒绝）。
   const STEP_TYPES = [
-    { key: "sr-design",          name: "需求设计",     isGate: false },
-    { key: "module-design-gate", name: "模块设计门禁", isGate: true  },
-    { key: "task-split",         name: "任务拆分",     isGate: false },
-    { key: "task-dev",           name: "任务开发",     isGate: false },
-    { key: "code-review-gate",   name: "代码评审门禁", isGate: true  },
-    { key: "test-gate",          name: "测试门禁",     isGate: true  },
+    { key: "sr-init",                    name: "仓库初始化",   isGate: false },
+    { key: "sr-design",                  name: "SR 需求设计",  isGate: false },
+    { key: "ar-split",                   name: "AR 拆分",      isGate: false },
+    { key: "ar-init",                    name: "AR 初始化",    isGate: false },
+    { key: "ar-clarify",                 name: "AR 澄清",      isGate: false },
+    { key: "module-boundary-design",     name: "模块边界设计", isGate: false },
+    { key: "module-detail-design-split", name: "模块详设拆分", isGate: false },
+    { key: "module-asis-analysis",       name: "模块现状分析", isGate: false },
+    { key: "module-tobe-design",         name: "模块目标设计", isGate: false },
+    { key: "module-test-design",         name: "模块测试设计", isGate: false },
+    { key: "module-design-gate",         name: "模块设计门禁", isGate: true  },
+    { key: "task-split",                 name: "任务拆分",     isGate: false },
+    { key: "task-dev",                   name: "任务开发",     isGate: false },
   ];
   // 工作流当前状态 → 活跃态映射，供明细列表使用。
   const WF_STATES = ["active", "stalled", "completed"];
@@ -258,7 +267,7 @@
 
       const items = catalog.map((s, idx) => {
         // 漏斗随环节推进逐级衰减，越靠后到达数越少。
-        const reached = round((260 - idx * 26) * (days / 7) * scale * (0.85 + seed(s.key + timeRange) * 0.3));
+        const reached = round((260 - idx * 18) * (days / 7) * scale * (0.85 + seed(s.key + timeRange) * 0.3));
         const failRate = 0.02 + seed(s.key + "f") * 0.06;
         const blockRate = s.isGate ? 0.05 + seed(s.key + "b") * 0.09 : 0.01 + seed(s.key + "b") * 0.02;
         const failed = round(reached * failRate);
