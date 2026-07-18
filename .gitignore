@@ -5,3 +5,6 @@ __pycache__/
 dist/
 *.egg-info/
 .aaw/
+.aaw-update.lock
+.aaw-update-*/
+.venv/

@@ -30,12 +30,21 @@ class CliTestBase(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def run_cli(self, *args: str, expect: int = 0) -> subprocess.CompletedProcess:
+    def run_cli(
+        self,
+        *args: str,
+        expect: int = 0,
+        extra_env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess:
         env = {
             **os.environ,
             "PYTHONIOENCODING": "utf-8",
             # Hermetic: never reach the real telemetry endpoint.
             "AAW_TELEMETRY_ENDPOINT": "http://127.0.0.1:1",
+            # Hermetic: no update checks, and update state stays in the sandbox.
+            "AAW_UPDATE_CHECK": "0",
+            "AAW_UPDATE_STATE": str(self.cwd / ".aaw-test-update-check.json"),
+            **(extra_env or {}),
         }
         result = subprocess.run(
             [sys.executable, str(AAW_SCRIPT), *args],

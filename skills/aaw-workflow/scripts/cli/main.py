@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 from pathlib import Path
 from typing import Annotated
@@ -10,6 +11,7 @@ import typer
 
 from .models import DataError, WorkflowError
 from .telemetry import TelemetryClient, TelemetryError, TelemetryStore, aaw_version
+from .update import UpdateError, check_for_update, run_update, update_hint
 from .workflow import WorkflowManager
 
 app = typer.Typer(
@@ -49,6 +51,13 @@ def _die(msg: str, code: int = 1) -> None:
 
 def _echo_json(data: dict) -> None:
     typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _print_update_hint() -> None:
+    """Stderr-only advisory; stdout (JSON contract) stays untouched."""
+    hint = update_hint()
+    if hint:
+        typer.echo(hint, err=True)
 
 
 def _parse_vars(
@@ -126,6 +135,7 @@ def status(
     use_json: Annotated[bool, typer.Option("--json/--no-json", help="JSON 输出")] = False,
 ):
     """查看工作流进度。"""
+    _print_update_hint()
     mgr = _get_manager()
 
     if sr is None:
@@ -200,6 +210,8 @@ def next(
     use_json: Annotated[bool, typer.Option("--json/--no-json", help="JSON 输出")] = False,
 ):
     """获取下一个（或多个）就绪工作单。"""
+    _print_update_hint()
+    atexit.register(check_for_update)  # throttled probe after the command finishes
     mgr = _get_manager()
     try:
         wf = mgr.load(sr)
@@ -287,6 +299,7 @@ def done(
     use_json: Annotated[bool, typer.Option("--json/--no-json", help="JSON 输出")] = False,
 ):
     """标记 step 完成并按配置生成后继。"""
+    atexit.register(check_for_update)  # throttled probe after the command finishes
     mgr = _get_manager()
     try:
         if data_raw and data_file:
@@ -371,6 +384,28 @@ def rollback(
         _echo_json(result)
     else:
         typer.echo(f"已回退到 step {step_id}，移除 {result['removed']} 个下游 step")
+
+
+@app.command()
+def update(
+    use_json: Annotated[bool, typer.Option("--json/--no-json", help="JSON 输出")] = False,
+):
+    """更新 AAW skills 到服务端发布的最新版本。"""
+    try:
+        result = run_update()
+    except UpdateError as e:
+        message = f"更新失败: {e.message}"
+        if e.hint:
+            message += f"\n  {e.hint}"
+        _die(message)
+
+    if use_json:
+        _echo_json({"ok": True, **result})
+    elif result["updated"]:
+        typer.echo(f"更新完成: {result['old_version']} -> {result['new_version']}")
+        typer.echo("  已更新 skills: " + ", ".join(result["skills"]))
+    else:
+        typer.echo(f"已是最新版本 ({result['old_version']})")
 
 
 def main() -> None:
