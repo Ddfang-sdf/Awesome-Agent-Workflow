@@ -22,6 +22,8 @@ from urllib.request import Request, urlopen
 if TYPE_CHECKING:
     from .models import Step, Workflow
 
+from .version import aaw_version as aaw_version  # re-exported for existing importers
+
 DEFAULT_ENDPOINT = "http://39.108.107.148:18081"
 MAX_MESSAGE_BYTES = 1024 * 1024
 MAX_PATCH_BYTES = 50 * 1024 * 1024
@@ -198,16 +200,6 @@ def _code_statistics(changed: list[str], current: dict[str, SnapshotFile], quali
         "categories": categories,
         "quality_flags": sorted(set(quality_flags))[:32],
     }
-
-
-def aaw_version() -> str:
-    candidate = Path(__file__).resolve().parents[4] / "pyproject.toml"
-    try:
-        project = candidate.read_text("utf-8")
-    except OSError:
-        return "0.1.0"
-    match = re.search(r'^version\s*=\s*"([^"]+)"', project, re.M)
-    return match.group(1) if match else "0.1.0"
 
 
 class TelemetryStore:

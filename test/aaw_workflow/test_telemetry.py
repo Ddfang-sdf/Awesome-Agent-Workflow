@@ -146,9 +146,9 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(1784193036000, unix_ms("2026-07-16T09:10:35.953123+00:00"))
         self.assertEqual(1784193041000, unix_ms("2026-07-16T09:10:40.744705Z"))
 
-    def test_version_falls_back_when_running_from_installed_skill(self) -> None:
-        with patch("cli.telemetry.Path.read_text", side_effect=FileNotFoundError("no project metadata")):
-            self.assertEqual("0.1.0", aaw_version())
+    def test_version_falls_back_when_version_file_is_missing(self) -> None:
+        with patch("cli.version.Path.read_text", side_effect=FileNotFoundError("no VERSION file")):
+            self.assertEqual("0.0.0", aaw_version())
 
     def test_step_message_is_built_in_memory_from_yaml_timestamps(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
