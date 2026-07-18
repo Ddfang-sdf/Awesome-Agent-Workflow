@@ -1,0 +1,5 @@
+# AAW 发布配置：make_release.py 读取
+# external_skills: definitions 允许引用但不随包分发的扩展 Skill
+external_skills: []
+# removed_skills: 本版本明确从 AAW 托管集合中删除的历史 Skill
+removed_skills: []

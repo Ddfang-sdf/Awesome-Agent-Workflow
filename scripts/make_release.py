@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""打包 aaw-workflow skill 为发布 zip（设计见 docs/auto-update-design.md §6）。
+"""打包完整 Skill 发布包（设计见 docs/auto-update-design.md §3.2、§3.4、§6）。
 
 用法: python scripts/make_release.py
-产出: dist/aaw-skills-<version>.zip（zip 根为 aaw-workflow/，排除 __pycache__ 与 *.pyc）
+产出: dist/aaw-skills-<version>.zip
+  zip 根 = release-manifest.json + 仓库 skills/ 下所有含 SKILL.md 的目录；
+  排除 __pycache__、*.pyc、.pytest_cache、.DS_Store。
 """
 from __future__ import annotations
 
@@ -12,23 +14,36 @@ import sys
 import zipfile
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = REPO_ROOT / "skills" / "aaw-workflow" / "scripts" / "cli" / "VERSION"
-SKILL_DIR = REPO_ROOT / "skills" / "aaw-workflow"
 DIST_DIR = REPO_ROOT / "dist"
 
 VERSION_PATTERN = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+MANIFEST_NAME = "release-manifest.json"
+MANIFEST_SCHEMA = 1
+RESERVED_PREFIX = ".aaw-"
+EXCLUDED_PARTS = {"__pycache__", ".pytest_cache"}
+EXCLUDED_NAMES = {".DS_Store"}
+# flow.yaml 是 flow 图定义（entrypoints/edges），不是节点文件，不含 skill 引用
+FLOW_DEFINITION = "flow.yaml"
 
 
-def read_version() -> str:
-    version = VERSION_FILE.read_text(encoding="utf-8").strip()
+class ReleaseError(Exception):
+    """发布包校验失败。"""
+
+
+def read_version(repo_root: Path = REPO_ROOT) -> str:
+    version_file = repo_root / "skills" / "aaw-workflow" / "scripts" / "cli" / "VERSION"
+    version = version_file.read_text(encoding="utf-8").strip()
     if VERSION_PATTERN.fullmatch(version) is None:
-        sys.exit(f"error: {VERSION_FILE} 的版本号 {version!r} 不是严格三段版本")
+        raise ReleaseError(f"{version_file} 的版本号 {version!r} 不是严格三段版本")
     return version
 
 
-def read_pyproject_version() -> str:
-    text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+def read_pyproject_version(repo_root: Path) -> str:
+    text = (repo_root / "pyproject.toml").read_text(encoding="utf-8")
     try:
         import tomllib
 
@@ -36,55 +51,207 @@ def read_pyproject_version() -> str:
     except ModuleNotFoundError:  # Python 3.10 没有 tomllib，退回行匹配
         match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
         if match is None:
-            sys.exit("error: pyproject.toml 中找不到 project.version")
+            raise ReleaseError("pyproject.toml 中找不到 project.version")
         return match.group(1)
 
 
-def read_json_version(relative: str, *keys: str) -> str:
-    data = json.loads((REPO_ROOT / relative).read_text(encoding="utf-8"))
+def read_json_version(repo_root: Path, relative: str, *keys: str) -> str:
+    data = json.loads((repo_root / relative).read_text(encoding="utf-8"))
     for key in keys:
         data = data[int(key) if key.isdigit() else key]
     return data
 
 
-def check_consistency(version: str) -> list[str]:
+def check_consistency(repo_root: Path, version: str) -> list[str]:
     sources = {
-        "pyproject.toml": read_pyproject_version(),
-        ".claude-plugin/plugin.json": read_json_version(".claude-plugin/plugin.json", "version"),
-        ".codex-plugin/plugin.json": read_json_version(".codex-plugin/plugin.json", "version"),
+        "pyproject.toml": read_pyproject_version(repo_root),
+        ".claude-plugin/plugin.json": read_json_version(repo_root, ".claude-plugin/plugin.json", "version"),
+        ".codex-plugin/plugin.json": read_json_version(repo_root, ".codex-plugin/plugin.json", "version"),
         ".claude-plugin/marketplace.json": read_json_version(
-            ".claude-plugin/marketplace.json", "plugins", "0", "version"
+            repo_root, ".claude-plugin/marketplace.json", "plugins", "0", "version"
         ),
     }
     return [f"  {name}: {found} != {version}" for name, found in sources.items() if found != version]
 
 
-def build_zip(version: str) -> Path:
-    DIST_DIR.mkdir(parents=True, exist_ok=True)
-    zip_path = DIST_DIR / f"aaw-skills-{version}.zip"
+def collect_skills(repo_root: Path) -> list[str]:
+    """动态发现 skills/ 下所有含 SKILL.md 的目录（排序）。"""
+    skills_root = repo_root / "skills"
+    return sorted(
+        path.name
+        for path in skills_root.iterdir()
+        if path.is_dir() and (path / "SKILL.md").is_file()
+    )
+
+
+def load_release_config(repo_root: Path) -> tuple[list[str], list[str]]:
+    """读 scripts/release.yaml 的 external_skills / removed_skills；文件或键缺失视为空。"""
+    config_path = repo_root / "scripts" / "release.yaml"
+    if not config_path.is_file():
+        return [], []
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if data is None:
+        return [], []
+    if not isinstance(data, dict):
+        raise ReleaseError(f"{config_path} 顶层必须是 mapping")
+    lists: list[list[str]] = []
+    for key in ("external_skills", "removed_skills"):
+        value = data.get(key)
+        if value is None:
+            lists.append([])
+        elif isinstance(value, list):
+            lists.append(value)
+        else:
+            raise ReleaseError(f"{config_path} 的 {key} 必须是列表")
+    return lists[0], lists[1]
+
+
+def _validate_name(label: str, name: object) -> None:
+    if not isinstance(name, str) or not name:
+        raise ReleaseError(f"{label} 包含非法名称（必须是非空字符串）: {name!r}")
+    if "/" in name or "\\" in name:
+        raise ReleaseError(f"{label} 名称含路径分隔符: {name!r}")
+    if name.startswith(RESERVED_PREFIX):
+        raise ReleaseError(f"{label} 名称命中保留前缀 {RESERVED_PREFIX!r}: {name!r}")
+    if name.startswith("."):
+        raise ReleaseError(f"{label} 名称以 '.' 开头: {name!r}")
+
+
+def validate_names(skills: list[str], external_skills: list[str], removed_skills: list[str]) -> None:
+    """校验三个列表名称合法、各自无重复、两两不交叉。"""
+    lists = {"skills": skills, "external_skills": external_skills, "removed_skills": removed_skills}
+    for label, names in lists.items():
+        for name in names:
+            _validate_name(label, name)
+        seen: set[str] = set()
+        for name in names:
+            if name in seen:
+                raise ReleaseError(f"{label} 存在重复名称: {name!r}")
+            seen.add(name)
+    pairs = [("skills", "external_skills"), ("skills", "removed_skills"), ("external_skills", "removed_skills")]
+    for first, second in pairs:
+        overlap = sorted(set(lists[first]) & set(lists[second]))
+        if overlap:
+            raise ReleaseError(f"{first} 与 {second} 存在交叉名称: {overlap}")
+
+
+def collect_definition_skill_refs(repo_root: Path) -> set[str]:
+    """收集内置 definitions 的全部 skill 引用（语义同 cli/models.py normalize_skill）。"""
+    definitions_dir = repo_root / "skills" / "aaw-workflow" / "scripts" / "cli" / "definitions"
+    refs: set[str] = set()
+    if not definitions_dir.is_dir():
+        return refs
+    for path in sorted(definitions_dir.rglob("*.yaml")):
+        if path.name == FLOW_DEFINITION:
+            continue
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise ReleaseError(f"definitions 文件解析失败 {path}: {exc}") from exc
+        if not isinstance(data, dict):
+            continue
+        value = data.get("skill")
+        if value is None:
+            continue
+        if isinstance(value, list):
+            refs.update(str(item) for item in value)
+        else:
+            refs.add(str(value))
+    return refs
+
+
+def validate_definition_refs(refs: set[str], skills: list[str], external_skills: list[str]) -> None:
+    """definitions 的每个 skill 引用必须位于 skills ∪ external_skills。"""
+    unknown = sorted(refs - set(skills) - set(external_skills))
+    if unknown:
+        raise ReleaseError(
+            f"definitions 引用了不在 skills/external_skills 中的 Skill: {unknown}；"
+            "请将该 Skill 加入包内或在 scripts/release.yaml 的 external_skills 中声明"
+        )
+
+
+def build_manifest(
+    version: str, skills: list[str], external_skills: list[str], removed_skills: list[str]
+) -> dict:
+    validate_names(skills, external_skills, removed_skills)
+    return {
+        "schema": MANIFEST_SCHEMA,
+        "version": version,
+        "skills": sorted(skills),
+        "external_skills": sorted(external_skills),
+        "removed_skills": sorted(removed_skills),
+    }
+
+
+def _is_excluded(path: Path) -> bool:
+    return (
+        bool(set(path.parts) & EXCLUDED_PARTS)
+        or path.suffix == ".pyc"
+        or path.name in EXCLUDED_NAMES
+    )
+
+
+def build_zip(repo_root: Path, manifest: dict, zip_path: Path) -> Path:
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_bytes = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(SKILL_DIR.rglob("*")):
-            if not path.is_file():
-                continue
-            if "__pycache__" in path.parts or path.suffix == ".pyc":
-                continue
-            arcname = Path("aaw-workflow") / path.relative_to(SKILL_DIR)
-            archive.write(path, arcname.as_posix())
+        archive.writestr(MANIFEST_NAME, manifest_bytes)
+        for skill in manifest["skills"]:
+            skill_dir = repo_root / "skills" / skill
+            for path in sorted(skill_dir.rglob("*")):
+                if not path.is_file() or _is_excluded(path):
+                    continue
+                arcname = Path(skill) / path.relative_to(skill_dir)
+                archive.write(path, arcname.as_posix())
     return zip_path
 
 
+def verify_zip(zip_path: Path, manifest: dict) -> None:
+    """重新打开 zip，按客户端同样的 manifest/顶层目录规则自检。"""
+    expected_skills = set(manifest["skills"])
+    with zipfile.ZipFile(zip_path) as archive:
+        names = archive.namelist()
+        top_level = {name.split("/")[0] for name in names}
+        expected_top = expected_skills | {MANIFEST_NAME}
+        if top_level != expected_top:
+            missing = sorted(expected_top - top_level)
+            extra = sorted(top_level - expected_top)
+            raise ReleaseError(f"zip 顶层项与 manifest 不一致: 缺失 {missing}, 多余 {extra}")
+        for skill in sorted(expected_skills):
+            if f"{skill}/SKILL.md" not in names:
+                raise ReleaseError(f"zip 中 {skill}/ 缺少 SKILL.md")
+        zipped = json.loads(archive.read(MANIFEST_NAME).decode("utf-8"))
+    if zipped.get("version") != manifest["version"]:
+        raise ReleaseError(
+            f"zip 内 manifest version {zipped.get('version')!r} 与打包版本 {manifest['version']!r} 不一致"
+        )
+    if sorted(zipped.get("skills", [])) != sorted(manifest["skills"]):
+        raise ReleaseError("zip 内 manifest skills 与打包列表不一致")
+
+
 def main() -> None:
-    version = read_version()
-    mismatches = check_consistency(version)
-    if mismatches:
-        print(f"error: 以下文件版本与 VERSION ({version}) 不一致:", file=sys.stderr)
-        for line in mismatches:
-            print(line, file=sys.stderr)
+    try:
+        version = read_version(REPO_ROOT)
+        mismatches = check_consistency(REPO_ROOT, version)
+        if mismatches:
+            raise ReleaseError(
+                f"以下文件版本与 VERSION ({version}) 不一致:\n" + "\n".join(mismatches)
+            )
+        skills = collect_skills(REPO_ROOT)
+        external_skills, removed_skills = load_release_config(REPO_ROOT)
+        manifest = build_manifest(version, skills, external_skills, removed_skills)
+        refs = collect_definition_skill_refs(REPO_ROOT)
+        validate_definition_refs(refs, manifest["skills"], manifest["external_skills"])
+        zip_path = build_zip(REPO_ROOT, manifest, DIST_DIR / f"aaw-skills-{version}.zip")
+        verify_zip(zip_path, manifest)
+    except ReleaseError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)
-    zip_path = build_zip(version)
     size = zip_path.stat().st_size
     print(f"{zip_path}")
     print(f"size: {size} bytes ({size / 1024:.1f} KiB)")
+    print(f"version: {version}")
+    print(f"skills: {len(manifest['skills'])}")
 
 
 if __name__ == "__main__":

@@ -94,6 +94,35 @@ def test_latest_release_ignores_non_conforming_files(projects, tmp_path):
     assert response.json()["latest_version"] == "1.1.0"
 
 
+def test_latest_release_ignores_uploading_temp_files(projects, tmp_path):
+    """上传中的临时名（§3.4：先传 .uploading 再原子改名发布）不参与 latest 判定。"""
+    release_dir = tmp_path / "releases"
+    release_dir.mkdir()
+    (release_dir / ".aaw-skills-9.9.9.zip.uploading").write_bytes(b"partial upload")
+    (release_dir / ".aaw-skills-1.3.0.zip.uploading").write_bytes(b"partial upload")
+    make_zip(release_dir, "1.2.0")
+
+    with release_client(projects, tmp_path, release_dir) as client:
+        response = client.get(QUERY_URL)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["latest_version"] == "1.2.0"
+    assert body["file_name"] == "aaw-skills-1.2.0.zip"
+
+
+def test_latest_release_returns_null_when_only_uploading_temp_files(projects, tmp_path):
+    release_dir = tmp_path / "releases"
+    release_dir.mkdir()
+    (release_dir / ".aaw-skills-1.3.0.zip.uploading").write_bytes(b"partial upload")
+
+    with release_client(projects, tmp_path, release_dir) as client:
+        response = client.get(QUERY_URL)
+
+    assert response.status_code == 200
+    assert response.json()["latest_version"] is None
+
+
 def test_latest_release_returns_null_when_no_valid_package(projects, tmp_path):
     release_dir = tmp_path / "releases"
     release_dir.mkdir()
