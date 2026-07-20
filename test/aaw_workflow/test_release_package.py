@@ -363,5 +363,52 @@ class ScriptDependencyTests(FakeRepoTestBase):
         make_release.check_script_dependencies(ROOT)
 
 
+class SkillVersionTests(FakeRepoTestBase):
+    """SKILL.md frontmatter version 四段格式，前三段必须等于发布版本。"""
+
+    def add_versioned_skill(self, name: str, version: str | None, quoted: bool = True) -> None:
+        skill_dir = self.repo / "skills" / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        if version is None:
+            frontmatter = f"---\nname: {name}\n---\n"
+        else:
+            rendered = f'"{version}"' if quoted else version
+            frontmatter = f"---\nname: {name}\nversion: {rendered}\n---\n"
+        (skill_dir / "SKILL.md").write_text(f"{frontmatter}\n# {name}\n", "utf-8")
+
+    def test_matching_versions_pass(self) -> None:
+        self.add_versioned_skill("alpha", "1.2.0.0")
+        self.add_versioned_skill("beta", "1.2.0.5")  # 第四段独立演进
+        make_release.check_skill_versions(self.repo, "1.2.0", ["alpha", "beta"])
+
+    def test_missing_version_rejected(self) -> None:
+        self.add_versioned_skill("alpha", None)
+        with self.assertRaises(make_release.ReleaseError):
+            make_release.check_skill_versions(self.repo, "1.2.0", ["alpha"])
+
+    def test_three_part_version_rejected(self) -> None:
+        self.add_versioned_skill("alpha", "1.2.0")
+        with self.assertRaises(make_release.ReleaseError) as ctx:
+            make_release.check_skill_versions(self.repo, "1.2.0", ["alpha"])
+        self.assertIn("四段", str(ctx.exception))
+
+    def test_prefix_mismatch_rejected(self) -> None:
+        self.add_versioned_skill("alpha", "1.1.9.0")
+        with self.assertRaises(make_release.ReleaseError) as ctx:
+            make_release.check_skill_versions(self.repo, "1.2.0", ["alpha"])
+        self.assertIn("前三段", str(ctx.exception))
+
+    def test_unquoted_yaml_scalar_rejected(self) -> None:
+        # 不加引号时 YAML 可能解析成非字符串，必须显式拒绝
+        self.add_versioned_skill("alpha", "1.2", quoted=False)
+        with self.assertRaises(make_release.ReleaseError):
+            make_release.check_skill_versions(self.repo, "1.2.0", ["alpha"])
+
+    def test_real_repo_skill_versions_pass(self) -> None:
+        version = make_release.read_version(ROOT)
+        skills = make_release.collect_skills(ROOT)
+        make_release.check_skill_versions(ROOT, version, skills)
+
+
 if __name__ == "__main__":
     unittest.main()

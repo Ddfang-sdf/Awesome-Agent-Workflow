@@ -117,6 +117,42 @@ def check_consistency(repo_root: Path, version: str) -> list[str]:
     return [f"  {name}: {found} != {version}" for name, found in sources.items() if found != version]
 
 
+SKILL_VERSION_PATTERN = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
+)
+
+
+def read_skill_version(skill_md: Path) -> str:
+    """读 SKILL.md YAML frontmatter 的 version 字段（必须存在且为字符串）。"""
+    text = skill_md.read_text(encoding="utf-8-sig")  # 容忍 BOM
+    match = re.match(r"(?s)\A---\r?\n(.*?)\r?\n---", text)
+    if match is None:
+        raise ReleaseError(f"{skill_md} 缺少 YAML frontmatter")
+    meta = yaml.safe_load(match.group(1))
+    version = meta.get("version") if isinstance(meta, dict) else None
+    if not isinstance(version, str):
+        raise ReleaseError(f"{skill_md} frontmatter 缺少字符串 version 字段（注意加引号防 YAML 解析成数字）")
+    return version
+
+
+def check_skill_versions(repo_root: Path, version: str, skills: list[str]) -> None:
+    """每个入包 skill 的 SKILL.md version 必须是四段且前三段 == 发布版本。"""
+    problems = []
+    for name in skills:
+        skill_md = repo_root / "skills" / name / "SKILL.md"
+        try:
+            found = read_skill_version(skill_md)
+        except ReleaseError as e:
+            problems.append(f"  {name}: {e}")
+            continue
+        if SKILL_VERSION_PATTERN.fullmatch(found) is None:
+            problems.append(f"  {name}: version {found!r} 不是四段格式 x.y.z.n")
+        elif found.rsplit(".", 1)[0] != version:
+            problems.append(f"  {name}: version {found} 前三段 != 发布版本 {version}")
+    if problems:
+        raise ReleaseError("以下 skill 的 SKILL.md version 不合规:\n" + "\n".join(problems))
+
+
 def collect_skills(repo_root: Path) -> list[str]:
     """动态发现 skills/ 下所有含 SKILL.md 的目录（排序）。"""
     skills_root = repo_root / "skills"
@@ -282,6 +318,7 @@ def main() -> None:
             )
         check_script_dependencies(REPO_ROOT)
         skills = collect_skills(REPO_ROOT)
+        check_skill_versions(REPO_ROOT, version, skills)
         external_skills, removed_skills = load_release_config(REPO_ROOT)
         manifest = build_manifest(version, skills, external_skills, removed_skills)
         refs = collect_definition_skill_refs(REPO_ROOT)

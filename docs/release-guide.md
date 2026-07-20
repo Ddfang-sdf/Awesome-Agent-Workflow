@@ -30,6 +30,10 @@
 | `.codex-plugin/plugin.json` | `version` |
 | `.claude-plugin/marketplace.json` | `plugins[0].version` |
 
+此外，每个 `skills/*/SKILL.md` 的 frontmatter 必须带四段 `version: "x.y.z.n"`
+（加引号防 YAML 解析成数字）：前三段必须等于发布版本号，第四段是该 skill
+自己的修订号。打包脚本会校验前三段一致；升发布版本时需同步刷新所有 SKILL.md。
+
 ## 三、维护 release.yaml（按需）
 
 `scripts/release.yaml` 声明两类特殊 skill，通常保持空列表即可：
