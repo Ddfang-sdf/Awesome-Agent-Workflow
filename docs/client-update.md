@@ -10,13 +10,14 @@
 
 ### 1. 自动更新（默认，无需操作）
 
-每次运行 `aaw start` 时，CLI 会在触碰任何工作流状态**之前**：
+每次运行 `aaw status` 时（按 SKILL.md 流程，`status` 是每次会话的第一条命令），
+CLI 会在触碰任何工作流状态**之前**：
 
 1. 向服务端查询最新版本（`GET /api/v1/client/release`）；
 2. 若服务端版本高于本地 `skills/aaw-workflow/scripts/cli/VERSION`，
    下载并原子替换整个 skills 安装；
 3. 更新成功后用**新版 CLI** 以原始参数重新执行本次命令（一次性 handoff，
-   不会循环重查），对用户表现为一次略慢的 `aaw start`。
+   不会循环重查），对用户表现为一次略慢的 `aaw status`。
 
 网络不可达、服务端无版本等非致命问题只打印警告并继续执行原命令，不阻塞工作流。
 

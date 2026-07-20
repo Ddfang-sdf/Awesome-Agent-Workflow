@@ -11,7 +11,7 @@ import typer
 
 from .models import DataError, WorkflowError
 from .telemetry import TelemetryClient, TelemetryError, TelemetryStore, aaw_version
-from .update import UpdateError, auto_update_on_start, consume_handoff, run_update
+from .update import UpdateError, auto_update_on_entry, consume_handoff, run_update
 from .workflow import WorkflowManager, write_session_marker
 
 app = typer.Typer(
@@ -99,17 +99,6 @@ def start(
     use_json: Annotated[bool, typer.Option("--json/--no-json", help="JSON 输出")] = False,
 ):
     """创建 workflow.yaml，并放入配置指定的入口节点。"""
-    # Auto-update runs before any workflow state is touched (docs §4.2).  A
-    # successful update re-execs the new CLI with the original argv and never
-    # returns; a re-executed process consumes the one-shot handoff instead of
-    # querying the server again.  Only fatal states abort start.
-    try:
-        if not consume_handoff():
-            auto_update_on_start(sys.argv[1:])
-    except UpdateError as e:
-        message = e.message if not e.hint else f"{e.message}\n  {e.hint}"
-        _die(message)
-
     mgr = _get_manager()
     try:
         vars_ = _parse_vars(var, sr, ar, title)
@@ -144,6 +133,18 @@ def status(
     use_json: Annotated[bool, typer.Option("--json/--no-json", help="JSON 输出")] = False,
 ):
     """查看工作流进度。"""
+    # Auto-update runs here: per SKILL.md, `status` is the first command of
+    # every session, so it is the update entry point (docs §4.2).  A successful
+    # update re-execs the new CLI with the original argv and never returns; a
+    # re-executed process consumes the one-shot handoff instead of querying the
+    # server again.  Only fatal states abort status.
+    try:
+        if not consume_handoff():
+            auto_update_on_entry(sys.argv[1:])
+    except UpdateError as e:
+        message = e.message if not e.hint else f"{e.message}\n  {e.hint}"
+        _die(message)
+
     mgr = _get_manager()
 
     if sr is None:

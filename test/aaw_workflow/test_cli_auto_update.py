@@ -1,4 +1,4 @@
-"""End-to-end tests for `aaw start` auto-update (docs §4.2 / §4.4 step 7).
+"""End-to-end tests for `aaw status` auto-update (docs §4.2 / §4.4 step 7).
 
 A full copy of the real aaw-workflow skill goes into a tmp skills root and its
 aaw.py is executed directly, so the CLI self-locates the tmp install and the
@@ -174,46 +174,43 @@ class AutoUpdateTests(unittest.TestCase):
 
     # -- query timing ------------------------------------------------------
 
-    def test_start_queries_release_before_creating_workflow(self) -> None:
-        result = self.run_cli("start", "--sr", "SR100", "--json")
+    def test_status_queries_release_on_entry(self) -> None:
+        result = self.run_cli("status", "--json")
 
-        json.loads(result.stdout)
-        self.assertTrue((self.project / ".sdd" / "SR100" / "workflow.yaml").exists())
+        self.assertEqual({"srs": []}, json.loads(result.stdout))
         self.assertEqual(1, _CountingHandler.release_queries)
 
     def test_other_commands_never_query_release(self) -> None:
-        self.run_cli("start", "--sr", "SR100", "--json")
+        self.run_cli("status", "--json")
         baseline = _CountingHandler.release_queries
 
-        self.run_cli("status", "--json")
-        self.run_cli("status", "--sr", "SR100", "--json")
+        self.run_cli("start", "--sr", "SR100", "--json")
         self.run_cli("next", "--sr", "SR100", "--json")
 
         self.assertEqual(baseline, _CountingHandler.release_queries)
 
-    def test_start_continues_with_warning_when_server_unreachable(self) -> None:
+    def test_status_continues_with_warning_when_server_unreachable(self) -> None:
         result = self.run_cli(
-            "start", "--sr", "SR100", "--json",
+            "status", "--json",
             extra_env={"AAW_TELEMETRY_ENDPOINT": "http://127.0.0.1:1"},
         )
 
         json.loads(result.stdout)
         self.assertIn("warning", result.stderr)
-        self.assertTrue((self.project / ".sdd" / "SR100" / "workflow.yaml").exists())
 
-    def test_start_with_equal_latest_does_not_update(self) -> None:
+    def test_status_with_equal_latest_does_not_update(self) -> None:
         _CountingHandler.releases = {OLD_VERSION: _zip_install(self.install, OLD_VERSION)}
 
-        result = self.run_cli("start", "--sr", "SR100", "--json")
+        result = self.run_cli("status", "--json")
 
         json.loads(result.stdout)
         self.assertNotIn("更新完成", result.stderr)
         self.assertIn(f"服务端版本: {OLD_VERSION} 本地版本: {OLD_VERSION} 已是最新", result.stderr)
         self.assertEqual(OLD_VERSION, self.installed_version())
 
-    def test_start_with_no_release_reports_versions(self) -> None:
+    def test_status_with_no_release_reports_versions(self) -> None:
         # setUp leaves the server without any release (latest_version: null)
-        result = self.run_cli("start", "--sr", "SR100", "--json")
+        result = self.run_cli("status", "--json")
 
         json.loads(result.stdout)
         self.assertIn(f"服务端版本: 无发布 本地版本: {OLD_VERSION} 已是最新", result.stderr)
@@ -221,39 +218,37 @@ class AutoUpdateTests(unittest.TestCase):
 
     # -- successful auto-update + re-exec ---------------------------------
 
-    def test_start_auto_updates_and_reexecs_original_argv(self) -> None:
+    def test_status_auto_updates_and_reexecs_original_argv(self) -> None:
+        self.run_cli("start", "--sr", "SR100", "--json")  # some existing state
         _CountingHandler.releases = {NEW_VERSION: _zip_install(self.install, NEW_VERSION)}
 
-        result = self.run_cli("start", "--sr", "SR100", "--json")
+        result = self.run_cli("status", "--json")
 
         # stdout is pure business JSON from the re-executed new CLI
         payload = json.loads(result.stdout)
-        self.assertTrue(payload["ok"])
-        self.assertEqual("SR100", payload["sr"])
+        self.assertEqual(["SR100"], payload["srs"])
         self.assertIn("更新完成", result.stderr)
         self.assertEqual(NEW_VERSION, self.installed_version())
-        self.assertTrue((self.project / ".sdd" / "SR100" / "workflow.yaml").exists())
         # the re-executed process consumed the handoff instead of querying again
         self.assertEqual(1, _CountingHandler.release_queries)
         self.assertEqual([], self.handoff_files())
 
-    def test_start_update_failure_rolls_back_and_continues(self) -> None:
+    def test_status_update_failure_rolls_back_and_continues(self) -> None:
         # packaged VERSION disagrees with the announced latest: sanity rejects it
         _CountingHandler.releases = {NEW_VERSION: _zip_install(self.install, "9.9.9")}
 
-        result = self.run_cli("start", "--sr", "SR100", "--json")
+        result = self.run_cli("status", "--json")
 
         json.loads(result.stdout)
         self.assertIn("warning", result.stderr)
         self.assertEqual(OLD_VERSION, self.installed_version())
-        self.assertTrue((self.project / ".sdd" / "SR100" / "workflow.yaml").exists())
         residue = [
             p for p in self.skills_root.iterdir()
             if p.name.startswith(".aaw-txn-") or p.name.startswith(".aaw-stage-")
         ]
         self.assertEqual([], residue)
 
-    def test_start_recovers_residue_even_without_new_release(self) -> None:
+    def test_status_recovers_residue_even_without_new_release(self) -> None:
         # docs §4.2: every command recovers local residue before any network I/O
         tx_dir = self.skills_root / ".aaw-txn-deadbeef"
         tx_dir.mkdir()
@@ -266,7 +261,7 @@ class AutoUpdateTests(unittest.TestCase):
             "steps": {},
         }), "utf-8")
 
-        result = self.run_cli("start", "--sr", "SR100", "--json")
+        result = self.run_cli("status", "--json")
 
         json.loads(result.stdout)
         self.assertFalse(tx_dir.exists())
@@ -278,33 +273,31 @@ class AutoUpdateTests(unittest.TestCase):
         path = self._write_handoff("tok-1", OLD_VERSION)
         env = {"AAW_UPDATE_HANDOFF": str(path), "AAW_UPDATE_HANDOFF_TOKEN": "tok-1"}
 
-        result = self.run_cli("start", "--sr", "SR100", "--json", extra_env=env)
+        result = self.run_cli("status", "--json", extra_env=env)
 
         json.loads(result.stdout)
         self.assertEqual(0, _CountingHandler.release_queries)  # no server query
         self.assertEqual([], self.handoff_files())  # consumed and removed
 
         # replay with the same environment: the handoff no longer exists
-        replay = self.run_cli("start", "--sr", "SR101", "--json", extra_env=env, expect=1)
+        replay = self.run_cli("status", "--json", extra_env=env, expect=1)
         self.assertIn("交接文件", replay.stderr)
 
     def test_forged_handoff_token_is_rejected(self) -> None:
         path = self._write_handoff("real-token", OLD_VERSION)
         env = {"AAW_UPDATE_HANDOFF": str(path), "AAW_UPDATE_HANDOFF_TOKEN": "forged-token"}
 
-        result = self.run_cli("start", "--sr", "SR100", "--json", extra_env=env, expect=1)
+        result = self.run_cli("status", "--json", extra_env=env, expect=1)
 
         self.assertIn("校验失败", result.stderr)
-        self.assertFalse((self.project / ".sdd").exists())
 
     def test_handoff_version_shortfall_breaks_reexec_loop(self) -> None:
         path = self._write_handoff("tok-1", "99.0.0")
         env = {"AAW_UPDATE_HANDOFF": str(path), "AAW_UPDATE_HANDOFF_TOKEN": "tok-1"}
 
-        result = self.run_cli("start", "--sr", "SR100", "--json", extra_env=env, expect=1)
+        result = self.run_cli("status", "--json", extra_env=env, expect=1)
 
         self.assertIn("版本校验失败", result.stderr)
-        self.assertFalse((self.project / ".sdd").exists())
 
     def test_handoff_outside_install_is_rejected_without_deleting_file(self) -> None:
         victim = Path(self.tmp.name) / "important.json"
@@ -314,11 +307,10 @@ class AutoUpdateTests(unittest.TestCase):
             "AAW_UPDATE_HANDOFF_TOKEN": "forged-token",
         }
 
-        result = self.run_cli("start", "--sr", "SR100", "--json", extra_env=env, expect=1)
+        result = self.run_cli("status", "--json", extra_env=env, expect=1)
 
         self.assertIn("不属于当前 AAW 安装", result.stderr)
         self.assertEqual('{"important": true}', victim.read_text("utf-8"))
-        self.assertFalse((self.project / ".sdd").exists())
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 """Transactional self-update from the telemetry server (auto + manual).
 
-Design: docs/auto-update-design.md.  `aaw start` queries the latest release
-first thing on entry (after local residue recovery) and auto-updates the full
+Design: docs/auto-update-design.md.  `aaw status` -- the first command of
+every session per SKILL.md -- queries the latest release first thing on entry
+(after local residue recovery) and auto-updates the full
 skill package before any workflow state is touched; `aaw update` is the
 explicit manual entry sharing the same pipeline.
 
@@ -60,7 +61,7 @@ class UpdateError(Exception):
         self.message = message
         self.hint = hint
         # fatal: the install may be inconsistent (rollback failed, lock lost,
-        # broken handoff) -- callers must not continue `start`.
+        # broken handoff) -- callers must not continue the entry command.
         self.fatal = fatal
 
 
@@ -654,7 +655,7 @@ if __name__ == "__main__":
 
 
 # ---------------------------------------------------------------------------
-# update flow (shared by `aaw update` and `aaw start` auto-update)
+# update flow (shared by `aaw update` and `aaw status` auto-update)
 # ---------------------------------------------------------------------------
 
 def _stderr(message: str) -> None:
@@ -966,24 +967,25 @@ def run_update(
 
 
 # ---------------------------------------------------------------------------
-# `aaw start` auto-update: query -> update -> handoff -> re-exec
+# `aaw status` auto-update: query -> update -> handoff -> re-exec
 # ---------------------------------------------------------------------------
 
-def auto_update_on_start(
+def auto_update_on_entry(
     argv: list[str],
     install_dir: Path | None = None,
     endpoint: str | None = None,
     out=None,
     lock: InstallLock | None = None,
 ) -> None:
-    """First operation of `aaw start` after residue recovery (docs §4.2/§4.4).
+    """First operation of the session entry command (`aaw status`) after
+    residue recovery (docs §4.2/§4.4).
 
-    Returns to let `start` continue with the current local version (no newer
-    release, or any recoverable failure -- reported as a stderr warning).  On
-    a successful update this never returns: it writes a one-shot handoff file
-    and re-executes the swapped-in aaw.py with the original argv.  Raises
-    UpdateError only for fatal states: `start` must abort rather than create
-    workflow state on an inconsistent install."""
+    Returns to let the entry command continue with the current local version
+    (no newer release, or any recoverable failure -- reported as a stderr
+    warning).  On a successful update this never returns: it writes a one-shot
+    handoff file and re-executes the swapped-in aaw.py with the original argv.
+    Raises UpdateError only for fatal states: the entry command must abort
+    rather than read workflow state on an inconsistent install."""
     out = out or _stderr
     owns = False
     lock_ref: InstallLock | None = None
@@ -1036,14 +1038,14 @@ def auto_update_on_start(
     # either way this process has old modules imported and must re-exec.
     if result is None:
         target_version = _read_local_version(skill_dir)
-        out(f"检测到安装已被并发更新到 {target_version}，重新执行 start")
+        out(f"检测到安装已被并发更新到 {target_version}，重新执行原命令")
     else:
         target_version = result["to_version"]
-        out(f"更新完成: {result['from_version']} -> {target_version}，重新执行 start")
-    _reexec_start(skills_root, argv, target_version, lock)
+        out(f"更新完成: {result['from_version']} -> {target_version}，重新执行原命令")
+    _reexec_entry(skills_root, argv, target_version, lock)
 
 
-def _reexec_start(skills_root: Path, argv: list[str], target_version: str, lock: InstallLock) -> None:
+def _reexec_entry(skills_root: Path, argv: list[str], target_version: str, lock: InstallLock) -> None:
     """Hand off to the swapped-in CLI without running any freshly-imported
     old-version code paths (docs §4.4 step 9).  Never returns on success."""
     token = secrets.token_hex(16)
@@ -1064,7 +1066,7 @@ def _reexec_start(skills_root: Path, argv: list[str], target_version: str, lock:
         handoff.unlink(missing_ok=True)
         raise UpdateError(
             f"更新已完成，但无法创建进程交接文件: {exc}",
-            "请直接重跑原 start 命令（无需再次更新）",
+            "请直接重跑原命令（无需再次更新）",
             fatal=True,
         )
     entry = skills_root / "aaw-workflow" / "scripts" / "aaw.py"
@@ -1093,17 +1095,17 @@ def _reexec_start(skills_root: Path, argv: list[str], target_version: str, lock:
     except OSError as e:
         handoff.unlink(missing_ok=True)
         raise UpdateError(
-            f"更新已完成，但 start 未执行: {e}",
-            "请直接重跑原 start 命令（无需再次更新）",
+            f"更新已完成，但原命令未执行: {e}",
+            "请直接重跑原命令（无需再次更新）",
             fatal=True,
         )
 
 
 def consume_handoff(install_dir: Path | None = None) -> bool:
-    """Consume the one-shot handoff in a re-executed `start` process.
+    """Consume the one-shot handoff in a re-executed entry process.
 
     Returns True when a valid handoff was consumed (skip the server query and
-    run the original start argv directly); False when this is a normal start.
+    run the original argv directly); False when this is a normal invocation.
     Raises UpdateError (fatal) on forged/replayed handoffs or when the local
     version did not reach the handoff target -- breaking re-exec loops."""
     path_raw = os.environ.pop(HANDOFF_PATH_ENV, None)
@@ -1112,18 +1114,18 @@ def consume_handoff(install_dir: Path | None = None) -> bool:
         return False
     if not path_raw or not token:
         raise UpdateError(
-            "更新交接参数不完整", "请直接重跑原 start 命令", fatal=True
+            "更新交接参数不完整", "请直接重跑原命令", fatal=True
         )
     _, skills_root = install_paths(install_dir)
     path = Path(os.path.abspath(path_raw))
     name_pattern = rf"^{re.escape(HANDOFF_PREFIX)}[0-9a-f]{{16}}\.json$"
     if path.parent != skills_root or re.fullmatch(name_pattern, path.name) is None:
         raise UpdateError(
-            "更新交接路径不属于当前 AAW 安装", "请直接重跑原 start 命令", fatal=True
+            "更新交接路径不属于当前 AAW 安装", "请直接重跑原命令", fatal=True
         )
     if _is_reparse_point(path) or not path.is_file():
         raise UpdateError(
-            "更新交接文件缺失或不是普通文件", "请直接重跑原 start 命令", fatal=True
+            "更新交接文件缺失或不是普通文件", "请直接重跑原命令", fatal=True
         )
     claimed = path.with_name(path.name + f".consumed-{os.getpid()}")
     try:
@@ -1131,7 +1133,7 @@ def consume_handoff(install_dir: Path | None = None) -> bool:
     except OSError:
         raise UpdateError(
             "更新交接文件缺失或已被消费",
-            "请直接重跑原 start 命令",
+            "请直接重跑原命令",
             fatal=True,
         )
     try:
@@ -1150,7 +1152,7 @@ def consume_handoff(install_dir: Path | None = None) -> bool:
         or not isinstance(data.get("token"), str)
         or not secrets.compare_digest(data["token"], token)
     ):
-        raise UpdateError("更新交接文件校验失败", "请直接重跑原 start 命令", fatal=True)
+        raise UpdateError("更新交接文件校验失败", "请直接重跑原命令", fatal=True)
 
     target = data.get("target_version")
     target_parts = parse_version(target) if isinstance(target, str) else None
