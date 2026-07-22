@@ -115,10 +115,10 @@ class CliTestBase(unittest.TestCase):
             result["next"] = confirm["next"]
         return result
 
-    def advance_to_step_3(self, sr: str) -> None:
-        """Finish steps 1-2 so step 3 (ar-split, requires --data) is ready.
+    def advance_to_ar_split(self, sr: str) -> None:
+        """Finish steps 1-3 so step 4 (ar-split, requires --data) is ready.
 
-        The final `next` marks step 3 started — prompt steps also require an
+        The final `next` marks step 4 started — prompt steps also require an
         actual start timestamp before `done` now.
         """
         self.start_sr(sr)
@@ -126,6 +126,31 @@ class CliTestBase(unittest.TestCase):
         (self.cwd / ".sdd" / sr / "SR-design.md").write_text("sr design", "utf-8")
         self.run_cli("next", "--sr", sr, "--json")
         self.run_cli("done", "--sr", sr, "2", "--json")
+        self.run_cli("next", "--sr", sr, "--json")
+        self.run_cli(
+            "done",
+            "--sr",
+            sr,
+            "3",
+            "--data",
+            json.dumps(
+                {
+                    "gate_result": "pass",
+                    "recommendation": "可进入 AR 拆分",
+                    "report": None,
+                    "summary": {
+                        "unqualified_dimensions": 0,
+                        "p0_conflicts": 0,
+                        "p1_conflicts": 0,
+                        "p2_findings": 0,
+                        "pending_questions": 0,
+                        "blocking_issues": 0,
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            "--json",
+        )
         self.user_confirm(sr)
         self.run_cli("next", "--sr", sr, "--json")
 

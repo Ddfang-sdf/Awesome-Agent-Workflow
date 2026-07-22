@@ -146,13 +146,3 @@ uv run <skill-dir>/scripts/aaw.py user-confirm --sr SR-XXX --json
 # 回退
 uv run <skill-dir>/scripts/aaw.py rollback --sr SR-XXX <id> --json
 ```
-
-## 会话建议
-
-每完成一个 step 后建议用户新开会话，并通过：
-
-```bash
-uv run <skill-dir>/scripts/aaw.py next --sr SR-XXX --json
-```
-
-从 CLI 状态恢复，不需要依赖上一轮上下文。

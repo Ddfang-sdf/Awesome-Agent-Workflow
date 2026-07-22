@@ -51,14 +51,15 @@
   // AAW 工作流步骤目录 — 与 skills/aaw-workflow/scripts/cli/definitions/ 下的
   // 节点 yaml（step_type = 文件名）及 flow.yaml 的边顺序保持一致。
   // 展示名直接使用 step_type 原始值，与真实后端契约一致（后端不返回显示名）。
-  // 唯一的门禁节点是 module-design-gate（choice 边，fail/blocked 原地拒绝）。
+  // sr-design-gate 与 module-design-gate 均为 choice 门禁；fail/blocked 原地拒绝。
   // flow = 到达量相对每周 SR 流入的量级系数，按"上游完成量 ≥ 下游到达量"逐级递推。
   // 工作流不是单调漏斗：ar-split(foreach ars)、module-detail-design-split(foreach
   // module_groups)、task-split(foreach tasks) 三条 foreach 边会放大下游步骤数。
   const STEP_TYPES = [
     { key: "sr-init",                    flow: 1.0,  isGate: false },
     { key: "sr-design",                  flow: 0.9,  isGate: false },
-    { key: "ar-split",                   flow: 0.8,  isGate: false },
+    { key: "sr-design-gate",             flow: 0.85, isGate: true  },
+    { key: "ar-split",                   flow: 0.72, isGate: false }, // SR Gate 卡掉一部分
     { key: "ar-init",                    flow: 0.35, isGate: false }, // 独立 AR 入口，量较少
     { key: "ar-clarify",                 flow: 2.5,  isGate: false }, // ar-split×3(foreach ars) + ar-init 汇入
     { key: "module-boundary-design",     flow: 2.25, isGate: false },

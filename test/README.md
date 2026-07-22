@@ -1,6 +1,7 @@
 # AAW Skills 自动化测试与测评体系
 
-本目录存放面向 `module-asis-analysis` / `module-tobe-design` / `module-test-design` / `module-design-gate` 四个 skill 的测试用例。
+本目录存放面向设计类 skill 的测试用例；其中 `sr-design-gate` 与
+`module-design-gate` 分别覆盖 SR 和模块两个层级的门禁行为。
 
 ## 目录组织原则
 
@@ -13,6 +14,12 @@ test/
 ├── lint/                              ← 横向:跨 skill 契约一致性检查(不对应单一 skill)
 │   ├── README.md
 │   └── TestPrompt_skill-contract-lint.md
+├── sr-design-gate/                     ← SR 设计门禁评测
+│   ├── README.md
+│   ├── TestPrompt_gate-evaluation.md
+│   └── fixtures/
+│       ├── case-01-conflicts/
+│       └── pass/
 └── module-design-gate/                ← 对应 skills/module-design-gate/
     ├── README.md
     ├── TestPrompt_gate-defect-detection.md
@@ -40,9 +47,9 @@ test/
 2. LLM 产出 lint 报告,按 `lint/README.md` 的"通过标准"逐项核对(PASS/FAIL)。
 
 ### gate 用例
-1. 把 `module-design-gate/fixtures/case-01-退款审计模块/` 复制到干净工作目录。
-2. 按 `module-design-gate/README.md` 执行 `run.md` 中的 prompt(替换 `{WORKDIR}`)。
-3. LLM 输出门禁结论(C17~C22),按 `expected-defects.md` 核对 5 个植入缺陷是否被抓出。
+1. 模块门禁：按 `module-design-gate/README.md` 执行，核对 5 个植入缺陷。
+2. SR 门禁：按 `sr-design-gate/README.md` 执行，分别运行冲突样本与通过样本；前者
+   必须发现 `expected-conflicts.md` 中的 10 个冲突，后者必须给出零问题 `pass`。
 
 ## 非确定性说明
 LLM 行为有波动,建议:
@@ -60,4 +67,4 @@ LLM 行为有波动,建议:
 ## 局限性
 - 本套测试**不验证** sr-design 的 MCP server(那部分用 `skills/sr-design/test_*.py` 的 pytest 覆盖)
 - 本套测试**不覆盖**端到端流水线(需完整 repo + SR + AR fixture)
-- gate 用例的 expected-defects 是人工标注的"应被抓出的问题",本身也是评测的一部分,随 skill 演进需更新
+- gate 用例的 expected-defects / expected-conflicts 是人工标注的"应被抓出的问题",本身也是评测的一部分,随 skill 演进需更新

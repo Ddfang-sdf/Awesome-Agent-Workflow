@@ -1,0 +1,13 @@
+name: sr-design-gate
+execution: skill
+skill: [sr-design-gate]
+input:
+  - path: ".sdd/software_architecture.md"
+    required: true
+  - path: ".sdd/{SR}/SR-design.md"
+    required: true
+output:
+  - path: ".sdd/{SR}/SR-design-gate.md"
+    required: false
+data_prompt:
+  description: "提交 SR 设计门禁结论。首次检查零问题时不生成 Markdown，report 填 null 并提交紧凑 summary；存在任意发现或历史报告时必须创建或更新报告并填写路径。只有结论为通过时提交 gate_result=pass；不通过或阻塞时先写报告和 data file，再执行 done，CLI reject 是预期结果，随后停止且不得推进到 ar-split。"
