@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects import mysql
@@ -253,3 +254,57 @@ class CodeAttribution(Base):
     server_updated_at: Mapped[datetime] = mapped_column(MILLISECOND_DATETIME, nullable=False)
 
     dev_run: Mapped[DevRun] = relationship(back_populates="attribution")
+
+
+class Issue(Base):
+    """A manually recorded issue from the portal wish board."""
+
+    __tablename__ = "issue"
+    __table_args__ = (
+        CheckConstraint(
+            "assignee IN ('张轶勃', '徐哲威', '宋东方', '张立肖', '孙杨宇鑫')",
+            name="ck_issue_assignee",
+        ),
+        CheckConstraint(
+            "status IN ('todo', 'in_progress', 'resolved')", name="ck_issue_status"
+        ),
+        CheckConstraint("priority IN ('low', 'medium', 'high')", name="ck_issue_priority"),
+        Index("ix_issue_status_updated", "status", "updated_at"),
+        Index("ix_issue_assignee_updated", "assignee", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    reporter: Mapped[str] = mapped_column(String(100), nullable=False)
+    assignee: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="todo")
+    priority: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
+    component: Mapped[str | None] = mapped_column(String(128))
+    workflow_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("workflow_run.id", ondelete="SET NULL"), nullable=True
+    )
+    sr: Mapped[str | None] = mapped_column(String(128))
+    ar: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(MILLISECOND_DATETIME, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(MILLISECOND_DATETIME, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(MILLISECOND_DATETIME)
+
+    activities: Mapped[list[IssueActivity]] = relationship(
+        back_populates="issue", cascade="all, delete-orphan", order_by="IssueActivity.created_at"
+    )
+
+
+class IssueActivity(Base):
+    __tablename__ = "issue_activity"
+    __table_args__ = (Index("ix_issue_activity_issue_created", "issue_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    issue_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("issue.id", ondelete="CASCADE"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(MILLISECOND_DATETIME, nullable=False)
+
+    issue: Mapped[Issue] = relationship(back_populates="activities")

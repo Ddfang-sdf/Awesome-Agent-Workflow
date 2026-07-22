@@ -129,3 +129,68 @@ class DiffUploadResponse(StrictModel):
     object_key: str
     sha256: Sha256
     confirmed_at: int
+
+
+IssueAssignee = Literal["张轶勃", "徐哲威", "宋东方", "张立肖", "孙杨宇鑫"]
+IssueStatus = Literal["todo", "in_progress", "resolved"]
+IssuePriority = Literal["low", "medium", "high"]
+
+
+class IssueCreate(StrictModel):
+    title: str = Field(min_length=1, max_length=100)
+    description: str = Field(min_length=1, max_length=10_000)
+    reporter: str = Field(min_length=1, max_length=100)
+    assignee: IssueAssignee
+    priority: IssuePriority = "medium"
+    status: IssueStatus = "todo"
+    component: str | None = Field(default=None, max_length=128)
+    workflow_run_id: uuid.UUID | None = None
+    sr: str | None = Field(default=None, max_length=128)
+    ar: str | None = Field(default=None, max_length=128)
+
+    @field_validator("title", "description", "reporter")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
+
+    @field_validator("component", "sr", "ar")
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        return value.strip() if value and value.strip() else None
+
+
+class IssueUpdate(StrictModel):
+    title: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, min_length=1, max_length=10_000)
+    reporter: str | None = Field(default=None, min_length=1, max_length=100)
+    assignee: IssueAssignee | None = None
+    priority: IssuePriority | None = None
+    status: IssueStatus | None = None
+    component: str | None = Field(default=None, max_length=128)
+    workflow_run_id: uuid.UUID | None = None
+    sr: str | None = Field(default=None, max_length=128)
+    ar: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def require_change(self) -> IssueUpdate:
+        if not self.model_fields_set:
+            raise ValueError("at least one field is required")
+        return self
+
+    @field_validator("title", "description", "reporter")
+    @classmethod
+    def strip_updated_required_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
+
+    @field_validator("component", "sr", "ar")
+    @classmethod
+    def strip_updated_optional_text(cls, value: str | None) -> str | None:
+        return value.strip() if value and value.strip() else None
