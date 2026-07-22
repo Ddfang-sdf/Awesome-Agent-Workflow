@@ -115,8 +115,8 @@ CLI 会在 `next --json` 中返回解析后的 `prompt.rendered`。
 ```yaml
 sr-design:
   kind: direct
-  to: ar-split
-  user_confirm: must
+  to: sr-design-gate
+  user_confirm: skip
 ```
 
 完成后生成一个固定后继。
@@ -178,6 +178,12 @@ module-design-gate:
     - when: data.gate_result == 'blocked'
       message: "门禁阻塞，不能进入 task-split。"
 ```
+
+SR 设计门禁也使用同一机制：`sr-design` 完成后直接进入 `sr-design-gate`；只有
+`data.gate_result == 'pass'` 才在用户强制确认后生成 `ar-split`，`fail` 和
+`blocked` 均留在原 Gate step 整改、复检，不自动 rollback。门禁报告是可选输出：
+首次检查零问题时只提交紧凑 JSON，不生成 Markdown；存在任意发现或历史报告时才
+创建或更新报告。可选报告的存在不能作为跳过 Gate 的依据。
 
 AR 拆分数据中，`id` 是稳定目录标识（如 `AR-001`），`title` 是可读标题。后续目录变量使用 `id`，人工说明使用 `title`。
 

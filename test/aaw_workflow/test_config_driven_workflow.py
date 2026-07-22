@@ -117,6 +117,30 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
             self._done(wf, step_id)
         return wf
 
+    def _workflow_at_sr_gate(self, sr: str):
+        wf = self.mgr.start("sr", {"SR": sr})
+        self._done(wf, 1)
+        self._done(wf, 2)
+        return wf
+
+    def _sr_gate_pass_data(self) -> str:
+        return json.dumps(
+            {
+                "gate_result": "pass",
+                "recommendation": "可进入 AR 拆分",
+                "report": None,
+                "summary": {
+                    "unqualified_dimensions": 0,
+                    "p0_conflicts": 0,
+                    "p1_conflicts": 0,
+                    "p2_findings": 0,
+                    "pending_questions": 0,
+                    "blocking_issues": 0,
+                },
+            },
+            ensure_ascii=False,
+        )
+
     def test_status_without_sdd_returns_empty_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(
@@ -350,9 +374,8 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         store.cleanup_step.assert_called_once_with(workflow, step, 1, dev_state)
 
     def test_prompt_template_is_returned_by_next_payload(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-001"})
-        self._done(wf, 1)
-        self._done(wf, 2)
+        wf = self._workflow_at_sr_gate("SR-001")
+        self._done(wf, 3, self._sr_gate_pass_data())
 
         order = self.mgr.build_next_payload(wf)["ready"][0]
 
@@ -361,23 +384,106 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual("prompts/ar-split.md", order["prompt"]["template"])
         self.assertIn("是否需要拆分 AR", order["prompt"]["rendered"])
         self.assertIn("ars", order["data"]["fields"])
-        self.assertTrue(order["data_file"]["path"].endswith("/.sdd/SR-001/.aaw/data/step-0003-ar-split.json"))
-        self.assertTrue(order["data_file"]["relative_path"].endswith(".sdd/SR-001/.aaw/data/step-0003-ar-split.json"))
+        self.assertTrue(order["data_file"]["path"].endswith("/.sdd/SR-001/.aaw/data/step-0004-ar-split.json"))
+        self.assertTrue(order["data_file"]["relative_path"].endswith(".sdd/SR-001/.aaw/data/step-0004-ar-split.json"))
         self.assertEqual("utf-8", order["data_file"]["encoding"])
         self.assertIn("aaw.py", order["commands"]["done"])
         self.assertIn("--data-file", order["commands"]["done"])
-        self.assertIn("step-0003-ar-split.json", order["commands"]["done"])
-        self.assertTrue(order["commands"]["done_inline"].endswith("done --sr SR-001 3 --data '<JSON>' --json"))
-        self.assertEqual("aaw done --sr SR-001 3 --data '<JSON>' --json", order["commands"]["legacy_done"])
+        self.assertIn("step-0004-ar-split.json", order["commands"]["done"])
+        self.assertTrue(order["commands"]["done_inline"].endswith("done --sr SR-001 4 --data '<JSON>' --json"))
+        self.assertEqual("aaw done --sr SR-001 4 --data '<JSON>' --json", order["commands"]["legacy_done"])
+
+    def test_sr_design_generates_gate_with_optional_report_without_confirmation(self) -> None:
+        wf = self.mgr.start("sr", {"SR": "SR-GATE"})
+        self._done(wf, 1)
+        self.mgr.mark_started(wf, 2)
+        self._touch_required_outputs(wf, 2)
+
+        result = self.mgr.mark_done(wf, 2)
+
+        self.assertEqual(1, result["generated"])
+        self.assertNotEqual("awaiting_user_confirm", result.get("state"))
+        gate = self.mgr.get_ready(wf)[0]
+        self.assertEqual("sr-design-gate", gate.type)
+        self.assertEqual(["sr-design-gate"], gate.skill)
+        self.assertEqual(
+            [".sdd/software_architecture.md", ".sdd/SR-GATE/SR-design.md"],
+            [item["path"] for item in gate.input],
+        )
+        self.assertTrue(all(item["required"] for item in gate.input))
+        self.assertEqual(".sdd/SR-GATE/SR-design-gate.md", gate.output[0]["path"])
+        self.assertFalse(gate.output[0]["required"])
+        deliverables = self.mgr.check_deliverables(gate)
+        self.assertEqual([".sdd/SR-GATE/SR-design-gate.md"], deliverables["optional"])
+        self.assertFalse(deliverables["can_skip"])
+        report = self._abs(gate.output[0]["path"])
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("historical gate report", "utf-8")
+        self.assertFalse(self.mgr.check_deliverables(gate)["can_skip"])
+        gate_order = self.mgr.build_next_payload(wf)["ready"][0]
+        self.assertIn("summary", gate_order["data"]["fields"])
+
+    def test_sr_gate_pass_waits_for_user_confirmation_before_ar_split(self) -> None:
+        wf = self._workflow_at_sr_gate("SR-GATE-PASS")
+        self.mgr.mark_started(wf, 3)
+        gate = wf.get_step(3)
+        assert gate is not None
+        report = self._abs(gate.output[0]["path"])
+
+        result = self.mgr.mark_done(wf, 3, self._sr_gate_pass_data())
+
+        self.assertFalse(report.exists())
+        self.assertEqual("awaiting_user_confirm", result["state"])
+        self.assertEqual([], self.mgr.get_ready(wf))
+        pending = self.mgr.build_next_payload(wf)["pending_user_confirm"]
+        self.assertEqual("ar-split", pending["planned_next"][0]["type"])
+        confirmed = self.mgr.user_confirm(wf)
+        self.assertEqual(1, confirmed["generated"])
+        self.assertEqual("ar-split", self.mgr.get_ready(wf)[0].type)
+
+    def test_sr_gate_fail_and_blocked_keep_gate_unfinished(self) -> None:
+        for gate_result, expected_message in (("fail", "门禁不通过"), ("blocked", "门禁阻塞")):
+            with self.subTest(gate_result=gate_result):
+                wf = self._workflow_at_sr_gate(f"SR-GATE-{gate_result.upper()}")
+                gate = wf.get_step(3)
+                assert gate is not None
+                report = self._abs(gate.output[0]["path"])
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text(f"gate {gate_result}", "utf-8")
+                with self.assertRaises(DataError) as ctx:
+                    self._done(
+                        wf,
+                        3,
+                        json.dumps(
+                            {
+                                "gate_result": gate_result,
+                                "recommendation": "整改后重试",
+                                "report": gate.output[0]["path"],
+                                "summary": {
+                                    "unqualified_dimensions": 1,
+                                    "p0_conflicts": 1 if gate_result == "fail" else 0,
+                                    "p1_conflicts": 0,
+                                    "p2_findings": 0,
+                                    "pending_questions": 0,
+                                    "blocking_issues": 1 if gate_result == "blocked" else 0,
+                                },
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                self.assertIn(expected_message, str(ctx.exception))
+                self.assertTrue(report.exists())
+                self.assertFalse(gate.finished)
+                self.assertEqual([], gate.next)
+                self.assertEqual([3], [step.id for step in self.mgr.get_ready(wf)])
 
     def test_choice_generates_ar_clarify_steps_from_config(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-001"})
-        self._done(wf, 1)
-        self._done(wf, 2)
+        wf = self._workflow_at_sr_gate("SR-001")
+        self._done(wf, 3, self._sr_gate_pass_data())
 
         result = self._done(
             wf,
-            3,
+            4,
             json.dumps(
                 {
                     "ars": [
@@ -443,6 +549,32 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
+            gate_data_file = cwd / "gate.json"
+            gate_data_file.write_text(self._sr_gate_pass_data(), "utf-8-sig")
+            subprocess.run(
+                [sys.executable, str(AAW_SCRIPT), "next", "--sr", "SR-DATAFILE", "--json"],
+                cwd=cwd,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(AAW_SCRIPT),
+                    "done",
+                    "--sr",
+                    "SR-DATAFILE",
+                    "3",
+                    "--data-file",
+                    str(gate_data_file),
+                    "--json",
+                ],
+                cwd=cwd,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
             subprocess.run(
                 [sys.executable, str(AAW_SCRIPT), "user-confirm", "--sr", "SR-DATAFILE", "--json"],
                 cwd=cwd,
@@ -469,7 +601,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
                     "done",
                     "--sr",
                     "SR-DATAFILE",
-                    "3",
+                    "4",
                     "--data-file",
                     str(data_file),
                     "--json",
@@ -490,11 +622,10 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual(["AR-001-ar-clarify"], [item["name"] for item in json.loads(nxt.stdout)["ready"]])
 
     def test_choice_no_split_uses_configured_synthetic_ar(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-001"})
-        self._done(wf, 1)
-        self._done(wf, 2)
+        wf = self._workflow_at_sr_gate("SR-001")
+        self._done(wf, 3, self._sr_gate_pass_data())
 
-        self._done(wf, 3, json.dumps({"mode": "no_split"}))
+        self._done(wf, 4, json.dumps({"mode": "no_split"}))
         ready = self.mgr.get_ready(wf)
 
         self.assertEqual(1, len(ready))
@@ -503,18 +634,17 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertTrue(ready[0].output[0]["path"].endswith("/SR-001/ALL/module-boundary-design.md"))
 
     def test_invalid_choice_item_is_rejected_without_mutating_workflow(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-BAD"})
-        self._done(wf, 1)
-        self._done(wf, 2)
+        wf = self._workflow_at_sr_gate("SR-BAD")
+        self._done(wf, 3, self._sr_gate_pass_data())
 
         with self.assertRaises(DataError):
-            self._done(wf, 3, json.dumps({"ars": [{"id": "AR-001"}]}))
+            self._done(wf, 4, json.dumps({"ars": [{"id": "AR-001"}]}))
 
-        step = wf.get_step(3)
+        step = wf.get_step(4)
         assert step is not None
         self.assertFalse(step.finished)
         self.assertEqual([], step.next)
-        self.assertEqual(3, len(wf.steps))
+        self.assertEqual(4, len(wf.steps))
 
     def test_ar_entry_skips_sr_design_and_ar_split(self) -> None:
         wf = self.mgr.start("ar", {"SR": "SR-002", "AR": "AR-010", "描述": "直接入口"})
@@ -527,6 +657,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual("ar-clarify", second["type"])
         self.assertEqual("AR-010", second["vars"]["AR"])
         self.assertNotIn("sr-design", [s.type for s in wf.steps])
+        self.assertNotIn("sr-design-gate", [s.type for s in wf.steps])
         self.assertNotIn("ar-split", [s.type for s in wf.steps])
 
     def test_ar_entry_requires_repo_init_artifact_before_done(self) -> None:

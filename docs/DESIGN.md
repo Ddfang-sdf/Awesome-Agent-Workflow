@@ -20,14 +20,14 @@ created_at: "2026-07-03T20:13:52"
 pending_user_confirm: null
 steps:
   - id: 1
-    type: sr-design
-    name: sr-design
+    type: sr-init
+    name: sr-init
     finished: false
-    skill: ['sr-design']
+    skill: ['repo-init']
     prompt: ""
-    input: ['xxxxx', '.sdd/software_architecture.md']
-    output: ['.sdd/SR-001/SR-design.md']
-    available_next: ['ar-split']
+    input: []
+    output: ['.sdd/software_architecture.md']
+    available_next: ['sr-design']
     next: [2]
 ```
 
@@ -64,7 +64,9 @@ steps:
 
 | type | next 行为 | --data 要求 |
 |------|----------|------------|
-| `sr-design` | 分配 1 个新 id | 无 |
+| `sr-init` | 用户确认后分配 1 个 `sr-design` 新 id | 无 |
+| `sr-design` | 分配 1 个 `sr-design-gate` 新 id | 无 |
+| `sr-design-gate` | `pass` 时等待用户确认后分配 1 个 `ar-split`；`fail/blocked` 拒绝流转 | **必须** |
 | `ar-split` | 按 `--data.ars` 条目数分配 N 个新 id | **必须** |
 | `ar-clarify` | 分配 1 个新 id | 无 |
 | `module-boundary-design` | 分配 1 个新 id | 无 |
@@ -84,25 +86,62 @@ steps:
 
 以下模板展示了生成后的完整形态。注意 `next` 字段的值是**填充后的结果**，创建时均为 `[]`。
 
-### Step 1：sr-design（init 时生成，唯一初始 step）
+### Step 1：sr-init（start 时生成，唯一初始 step）
 
 ```yaml
 id: 1
+type: sr-init
+name: sr-init
+finished: false
+skill: ['repo-init']
+prompt: ""
+input: []
+output: ['.sdd/software_architecture.md']
+available_next: ['sr-design']
+next: []
+```
+
+### Step 2：sr-design（用户确认初始化结果后生成）
+
+```yaml
+id: 2
 type: sr-design
 name: sr-design
 finished: false
 skill: ['sr-design']
 prompt: ""
-input: ['xxxxx', '.sdd/software_architecture.md']
+input: ['.sdd/software_architecture.md']
 output: ['.sdd/SR-001/SR-design.md']
+available_next: ['sr-design-gate']
+next: []
+```
+
+### sr-design-gate（done sr-design 后生成）
+
+```yaml
+id: 3
+type: sr-design-gate
+name: sr-design-gate
+finished: false
+skill: ['sr-design-gate']
+input:
+  - '.sdd/software_architecture.md'
+  - '.sdd/SR-001/SR-design.md'
+output:
+  - path: '.sdd/SR-001/SR-design-gate.md'
+    required: false
 available_next: ['ar-split']
 next: []
 ```
 
-### ar-split（done 1 后生成）
+只有提交 `gate_result=pass` 时才会等待用户强制确认并生成 `ar-split`；`fail` 和
+`blocked` 保持当前 Gate 未完成，不生成下游，也不自动 rollback。报告是可选输出：
+首次零问题时只提交紧凑 JSON，不生成 Markdown；存在任意发现或历史报告时才写报告。
+
+### ar-split（Gate 通过并经用户确认后生成）
 
 ```yaml
-id: 2
+id: 4
 type: ar-split
 name: ar-split
 finished: false
@@ -114,7 +153,7 @@ available_next: ['ar-clarify', 'module-boundary-design']
 next: []
 ```
 
-### ar-clarify（done 2 后按 AR 数量生成。以 AR-001 为例）
+### ar-clarify（done ar-split 后按 AR 数量生成。以 AR-001 为例）
 
 ```yaml
 id: 3
@@ -268,16 +307,26 @@ next: []    # 终止
 每个 AR 独立分叉，每个模块组独立分叉，互不收敛。以 2 个 AR × 2 个模块组 × 2 个任务为例：
 
 ```
-1(sr-design)
-  └→ 2(ar-split)
-       ├→ 3(AR-001 clarify) → 5(AR-001 boundary) → 6(AR-001 detail-split)
+1(sr-init) ──用户确认──→ 2(sr-design)
+  └→ 3(sr-design-gate) ──pass + 用户确认──→ 4(ar-split)
+       │                                      ├→ 5(AR-001 clarify) → boundary → detail-split
+       │                                      └→ 6(AR-002 clarify) → ...
+       ├─fail──→ 原地整改 SR-design 后复检
+       └─blocked──→ 补齐输入或用户决策后复检
+```
+
+AR 拆分之后，每个 AR 和模块组继续独立分叉，互不收敛。完整分支结构为：
+
+```
+ar-split
+       ├→ AR-001 clarify → boundary → detail-split
        │                                              ├→ 7(asis-A,B)  → 9(tobe) → 10(test) → 11(gate) → 12(task-split)
        │                                              │                                                ├→ 13(T1-dev)
        │                                              │                                                └→ 14(T2-dev)
        │                                              └→ 8(asis-C)    → 15(tobe) → 16(test) → 17(gate) → 18(task-split)
        │                                                                                                 ├→ 19(T1-dev)
        │                                                                                                 └→ 20(T2-dev)
-       └→ 4(AR-002 clarify) → 21(AR-002 boundary) → 22(AR-002 detail-split)
+       └→ AR-002 clarify → boundary → detail-split
                                                         ├→ 23(asis-X)  → ...
                                                         └→ 24(asis-Y)  → ...
 ```
@@ -659,36 +708,52 @@ sequenceDiagram
 
     rect rgb(240, 248, 255)
         Note over A,W: 初始化
-        A->>C: aaw init --sr SR-001
+        A->>C: aaw start --entry sr --sr SR-001
         C->>W: 创建 .sdd/SR-001/
-        C->>W: 写入 step 1 (sr-design)
+        C->>W: 写入 step 1 (sr-init)
         C-->>A: { ok }
     end
 
     rect rgb(255, 250, 240)
-        Note over A,W: Step 1: SR设计
+        Note over A,W: Step 1: 仓库初始化
         A->>C: aaw next --sr SR-001
         C-->>A: { ready: [1] }
-        A->>A: load_skill sr-design → 产出 SR-design.md
-        A->>A: 检查交付件 ✓
+        A->>A: load_skill repo-init → 产出 software_architecture.md
         A->>C: aaw done --sr SR-001 1
-        C->>W: step 1.finished = true
-        C->>C: 1:1 → next = [2]
-        C->>W: 生成 step 2 (ar-split)
-        C-->>A: { ok, generated: 1 }
+        C->>W: 等待用户确认
+        A->>C: aaw user-confirm --sr SR-001
+        C->>W: 生成 step 2 (sr-design)
     end
 
     rect rgb(240, 255, 240)
-        Note over A,W: Step 2: AR拆分
+        Note over A,W: Step 2: SR设计
         A->>C: aaw next --sr SR-001
         C-->>A: { ready: [2] }
+        A->>A: load_skill sr-design → 产出 SR-design.md
+        A->>C: aaw done --sr SR-001 2
+        C->>W: 生成 step 3 (sr-design-gate)
+    end
+
+    rect rgb(240, 255, 240)
+        Note over A,W: Step 3: SR设计门禁
+        A->>C: aaw next --sr SR-001
+        C-->>A: { ready: [3] }
+        A->>A: 执行 sr-design-gate → 有发现时才产出 SR-design-gate.md
+        A->>C: aaw done 3 --data '{"gate_result":"pass",...}'
+        C->>W: step 3.finished = true，等待用户确认
+        A->>C: aaw user-confirm --sr SR-001
+        C->>W: 生成 step 4 (ar-split)
+    end
+
+    rect rgb(240, 255, 240)
+        Note over A,W: Step 4: AR拆分
+        A->>C: aaw next --sr SR-001
+        C-->>A: { ready: [4] }
         A->>A: 执行 ar-split prompt
         A->>A: 分析 SR-design.md → AR-001:用户管理, AR-002:权限控制
-        A->>C: aaw done 2 --data '{"ars":[{"id":"AR-001","title":"用户管理"},{"id":"AR-002","title":"权限控制"}]}'
-        C->>W: step 2.finished = true
-        C->>C: 分叉 → next = [3,4]
-        C->>W: 生成 step 3 (AR-001 clarify)
-        C->>W: 生成 step 4 (AR-002 clarify)
+        A->>C: aaw done 4 --data '{"ars":[{"id":"AR-001","title":"用户管理"},{"id":"AR-002","title":"权限控制"}]}'
+        C->>W: step 4.finished = true
+        C->>C: 分叉 → 生成两个 ar-clarify step
         C-->>A: { ok, generated: 2 }
     end
 
@@ -954,15 +1019,27 @@ Then    报错：SR-999 不存在
 
 ### TC4: `aaw done`
 
-#### TC4.1 1:1 类型（sr-design → ar-split）
+#### TC4.1 1:1 类型（sr-design → sr-design-gate）
 
 ```
-Given   steps=[1]  step 1: type=sr-design, finished=false, next=[]
-When    aaw done --sr SR-001 1 --json
-Then    step 1.finished = true
-        step 1.next = [2]
-        生成 step 2: type=ar-split, finished=false, next=[]
+Given   step 2: type=sr-design, finished=false, next=[]
+When    aaw done --sr SR-001 2 --json
+Then    step 2.finished = true
+        step 2.next = [3]
+        生成 step 3: type=sr-design-gate, finished=false, next=[]
         { ok, generated: 1 }
+```
+
+#### TC4.1.1 SR 设计门禁
+
+```
+Given   step 3: type=sr-design-gate, finished=false, next=[]
+When    首次检查零问题，gate_result=pass、report=null 且 summary 全部为 0
+Then    step 3 完成，等待用户确认；确认后生成 ar-split
+        不要求生成 SR-design-gate.md
+When    gate_result=fail 或 blocked
+Then    CLI 拒绝流转，step 3 保持未完成，不生成下游，不自动 rollback
+        Skill 必须生成问题报告
 ```
 
 #### TC4.2 1:1 类型变量继承（ar-clarify → boundary-design）
