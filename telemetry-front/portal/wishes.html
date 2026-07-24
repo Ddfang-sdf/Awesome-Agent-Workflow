@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>问题许愿池 · Adoption Studio</title>
+<link rel="stylesheet" href="vendor/fonts.css" />
+<link rel="stylesheet" href="wishes.css?v=20260722-1" />
+</head>
+<body>
+<div class="wash" aria-hidden="true"></div>
+<header class="bar">
+  <a class="mark" href="bright.html" aria-label="返回采纳看板">
+    <span class="mark__glyph" aria-hidden="true">✦</span>
+    <span class="mark__text"><strong>代码采纳工坊</strong><small>ADOPTION STUDIO</small></span>
+  </a>
+  <nav class="portal-nav" aria-label="主导航">
+    <a href="bright.html">采纳看板</a>
+    <a class="is-active" href="wishes.html" aria-current="page">问题许愿池</a>
+  </nav>
+  <button class="primary" id="newIssue" type="button">+ 新增问题</button>
+</header>
+
+<main class="stage">
+  <section class="intro">
+    <div><p class="eyebrow">WISH BOARD</p><h1>问题许愿池</h1><p>把遇到的问题交给明确的人，持续推进到解决。</p></div>
+    <div class="summary"><strong id="openCount">—</strong><span>待解决问题</span></div>
+  </section>
+  <section class="filters" aria-label="问题筛选">
+    <label>状态 <select id="statusFilter"><option value="">全部状态</option><option value="todo">待处理</option><option value="in_progress">处理中</option><option value="resolved">已解决</option></select></label>
+    <label>责任人 <select id="assigneeFilter"><option value="">全部人员</option></select></label>
+    <label class="search">搜索 <input id="searchFilter" type="search" placeholder="标题或描述" /></label>
+  </section>
+  <p class="notice" id="notice" hidden></p>
+  <section class="board" id="board" aria-live="polite"></section>
+</main>
+
+<dialog id="issueDialog" class="dialog">
+  <form id="issueForm" method="dialog">
+    <div class="dialog__head"><h2 id="dialogTitle">新增问题</h2><button class="icon-btn" type="button" data-close aria-label="关闭">×</button></div>
+    <label>问题标题 <input name="title" maxlength="100" required /></label>
+    <label>问题描述 <textarea name="description" rows="5" maxlength="10000" required></textarea></label>
+    <div class="form-grid">
+      <label>问题提出人 <input name="reporter" maxlength="100" required /></label>
+      <label>责任人 <select name="assignee" id="formAssignee" required></select></label>
+      <label>优先级 <select name="priority"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option></select></label>
+      <label>状态 <select name="status"><option value="todo">待处理</option><option value="in_progress">处理中</option><option value="resolved">已解决</option></select></label>
+      <label>关联组件 <input name="component" maxlength="128" /></label>
+      <label>SR <input name="sr" maxlength="128" /></label>
+      <label>AR <input name="ar" maxlength="128" /></label>
+    </div>
+    <div class="dialog__actions"><button class="secondary" type="button" data-close>取消</button><button class="primary" type="submit">保存</button></div>
+  </form>
+</dialog>
+
+<dialog id="detailDialog" class="dialog detail-dialog"><div id="detailContent"></div></dialog>
+<script src="config.js"></script>
+<script src="wishes.js?v=20260722-1"></script>
+</body>
+</html>

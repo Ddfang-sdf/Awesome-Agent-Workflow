@@ -120,6 +120,19 @@ body > main.stage { z-index: 0; }
   color: var(--ink-mute);
 }
 
+.portal-nav { display: flex; align-items: center; gap: 4px; }
+.portal-nav__link {
+  padding: 7px 10px;
+  border-radius: 9px;
+  color: var(--ink-soft);
+  font-family: var(--disp);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.portal-nav__link:hover { background: rgba(75, 63, 228, .08); color: var(--iris); }
+.portal-nav__link.is-active { background: var(--iris); color: #fff; }
+
 /* controls */
 .controls {
   display: flex;

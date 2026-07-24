@@ -52,29 +52,29 @@ class DoneCliTests(CliTestBase):
         self.assertIn("已完成", result.stderr)
 
     def test_invalid_json_data_exits_with_error(self) -> None:
-        self.advance_to_step_3("SR-BADJSON")
+        self.advance_to_ar_split("SR-BADJSON")
 
-        result = self.run_cli("done", "--sr", "SR-BADJSON", "3", "--data", "not json", expect=1)
+        result = self.run_cli("done", "--sr", "SR-BADJSON", "4", "--data", "not json", expect=1)
 
         self.assertIn("--data JSON 解析失败", result.stderr)
 
     def test_non_object_json_data_exits_with_error(self) -> None:
-        self.advance_to_step_3("SR-ARRAY")
+        self.advance_to_ar_split("SR-ARRAY")
 
-        result = self.run_cli("done", "--sr", "SR-ARRAY", "3", "--data", "[1, 2]", expect=1)
+        result = self.run_cli("done", "--sr", "SR-ARRAY", "4", "--data", "[1, 2]", expect=1)
 
         self.assertIn("--data 必须是 JSON object", result.stderr)
 
     def test_data_error_does_not_mutate_workflow(self) -> None:
-        self.advance_to_step_3("SR-INTACT")
+        self.advance_to_ar_split("SR-INTACT")
 
-        self.run_cli("done", "--sr", "SR-INTACT", "3", "--data", "not json", expect=1)
+        self.run_cli("done", "--sr", "SR-INTACT", "4", "--data", "not json", expect=1)
 
         data = self.status_json("SR-INTACT")
-        step3 = data["steps"][2]
-        self.assertFalse(step3["finished"])
-        self.assertEqual([], step3["next"])
-        self.assertEqual(3, len(data["steps"]))
+        step4 = data["steps"][3]
+        self.assertFalse(step4["finished"])
+        self.assertEqual([], step4["next"])
+        self.assertEqual(4, len(data["steps"]))
 
     def test_telemetry_failure_is_nonfatal_and_reported(self) -> None:
         self.start_sr("SR-TELEM")

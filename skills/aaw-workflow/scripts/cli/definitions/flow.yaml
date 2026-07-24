@@ -16,8 +16,41 @@ edges:
 
   sr-design:
     kind: direct
-    to: ar-split
-    user_confirm: must
+    to: sr-design-gate
+    user_confirm: skip
+
+  sr-design-gate:
+    kind: choice
+    choices:
+      - when: data.gate_result == 'pass'
+        to: ar-split
+        user_confirm: must
+    reject:
+      - when: data.gate_result == 'fail'
+        message: "SR 设计门禁不通过，不能进入 ar-split；请根据门禁结果修正 SR-design.md 后重新执行 sr-design-gate。不要自动 rollback。"
+      - when: data.gate_result == 'blocked'
+        message: "SR 设计门禁阻塞，不能进入 ar-split；请补齐门禁结果中列出的必要输入或用户决策后重新执行。不要自动 rollback。"
+    data_schema:
+      description: "提交 SR 设计门禁结论；只有 gate_result=pass 会进入 ar-split。"
+      fields:
+        gate_result:
+          description: "通过填 pass；不通过填 fail；阻塞填 blocked。"
+          example: pass
+        recommendation:
+          description: "门禁建议。"
+          example: "可进入 AR 拆分"
+        report:
+          description: "门禁报告路径；仅首次检查零问题且无历史报告时填 null。"
+          example: null
+        summary:
+          description: "门禁紧凑统计；无论是否生成 Markdown 都必须填写。"
+          example:
+            unqualified_dimensions: 0
+            p0_conflicts: 0
+            p1_conflicts: 0
+            p2_findings: 0
+            pending_questions: 0
+            blocking_issues: 0
 
   ar-init:
     kind: direct
@@ -120,6 +153,7 @@ edges:
   task-split:
     kind: foreach
     to: task-dev
+    scheduling: serial
     user_confirm: must
     foreach: data.tasks
     item_validation:

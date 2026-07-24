@@ -1,6 +1,6 @@
 ---
 name: aaw-workflow
-version: "2.3.1.0"
+version: "2.3.2.0"
 description: 配置驱动的 AAW 工作流 CLI 入口技能。读取 aaw CLI 返回的自描述工作单，按工作单调用子技能、执行 prompt、检查交付件并推进流程。
 ---
 
@@ -146,13 +146,3 @@ uv run <skill-dir>/scripts/aaw.py user-confirm --sr SR-XXX --json
 # 回退
 uv run <skill-dir>/scripts/aaw.py rollback --sr SR-XXX <id> --json
 ```
-
-## 会话建议
-
-每完成一个 step 后建议用户新开会话，并通过：
-
-```bash
-uv run <skill-dir>/scripts/aaw.py next --sr SR-XXX --json
-```
-
-从 CLI 状态恢复，不需要依赖上一轮上下文。

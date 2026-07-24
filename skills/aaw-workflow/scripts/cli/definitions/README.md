@@ -63,11 +63,13 @@ output:
 |------|------|
 | `name` | 展示名，支持 `{变量}` |
 | `execution` | 执行方式：`skill` / `prompt` / `manual` / `noop` |
+| `session` | 执行上下文：默认 `inherit`；需要每次独立上下文时声明 `fresh` |
 | `skill` | 子技能名列表，仅 `execution: skill` 必需 |
 | `prompt` | 执行指令，可用 inline、template、steps |
 | `data_prompt` | 收集 `--data` 的补充说明 |
 | `input` | 输入项，支持 `path` 或 `value`；`path` 可通过 `required` 控制是否阻断执行 |
 | `output` | 交付件路径项；`required` 控制是否纳入强制检查，缺失时 `done` 会失败 |
+| `data_schema` | 完成数据说明；字段可用 `required`、`type` 和 `allowed` 声明基础校验 |
 
 ## Prompt
 
@@ -113,8 +115,8 @@ CLI 会在 `next --json` 中返回解析后的 `prompt.rendered`。
 ```yaml
 sr-design:
   kind: direct
-  to: ar-split
-  user_confirm: must
+  to: sr-design-gate
+  user_confirm: skip
 ```
 
 完成后生成一个固定后继。
@@ -127,6 +129,7 @@ task-split:
   to: task-dev
   user_confirm: must
   foreach: data.tasks
+  scheduling: serial
   item_validation:
     reject_pattern: "^T\\d+-"
     message: "tasks 列表项不要包含 T1-/T2- 前缀，只填写任务标题。"
@@ -135,7 +138,7 @@ task-split:
     任务标题: "{item}"
 ```
 
-`foreach` 指向 `--data` 中的数组。每个数组项生成一个后继节点。
+`foreach` 指向 `--data` 中的数组。每个数组项生成一个后继节点。`scheduling` 可选 `parallel`（默认）或 `serial`；串行模式下，后一个生成节点只有在前一个完成后才会就绪。
 
 `item_validation` 是可选校验规则，用于拒绝格式错误的数组项。当前支持 `reject_pattern`，匹配时 `done` 失败且不写入后继节点。典型用途是防止 `task-split` 回填 `tasks` 时带入 `T1-` 前缀，避免下游生成 `T1-T1-xxx.md`。
 
@@ -175,6 +178,12 @@ module-design-gate:
     - when: data.gate_result == 'blocked'
       message: "门禁阻塞，不能进入 task-split。"
 ```
+
+SR 设计门禁也使用同一机制：`sr-design` 完成后直接进入 `sr-design-gate`；只有
+`data.gate_result == 'pass'` 才在用户强制确认后生成 `ar-split`，`fail` 和
+`blocked` 均留在原 Gate step 整改、复检，不自动 rollback。门禁报告是可选输出：
+首次检查零问题时只提交紧凑 JSON，不生成 Markdown；存在任意发现或历史报告时才
+创建或更新报告。可选报告的存在不能作为跳过 Gate 的依据。
 
 AR 拆分数据中，`id` 是稳定目录标识（如 `AR-001`），`title` 是可读标题。后续目录变量使用 `id`，人工说明使用 `title`。
 

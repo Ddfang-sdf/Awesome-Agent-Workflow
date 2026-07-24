@@ -11,6 +11,7 @@ const state = {
 const NODE_LABELS = {
   "sr-init": "初始化项目上下文",
   "sr-design": "SR 设计",
+  "sr-design-gate": "SR 设计门禁",
   "ar-init": "AR 入口准备",
   "ar-split": "判断是否拆分 AR",
   "ar-clarify": "AR 范围澄清",
@@ -697,7 +698,7 @@ function humanConnectionLabel(edge) {
   if (edge.source === "module-detail-design-split") {
     return "每个模块组各执行一次";
   }
-  if (edge.source === "module-design-gate" && label.includes("pass")) {
+  if (["sr-design-gate", "module-design-gate"].includes(edge.source) && label.includes("pass")) {
     return "门禁通过后继续";
   }
   if (edge.source === "task-split") {
