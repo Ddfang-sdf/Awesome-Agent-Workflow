@@ -28,12 +28,14 @@ class WorkflowRun(Base):
     __table_args__ = (
         CheckConstraint("status IN ('in_progress', 'completed')", name="ck_workflow_status"),
         Index("ix_workflow_project_started", "project_key", "started_at"),
+        Index("ix_workflow_kind_project_started", "workflow_kind", "project_key", "started_at"),
         Index("ix_workflow_user_started", "git_user_email", "started_at"),
         Index("ix_workflow_status_activity", "status", "last_activity_at"),
         Index("ix_workflow_sr_ar", "sr", "ar"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    workflow_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="aaw")
     project_key: Mapped[str] = mapped_column(String(128), nullable=False)
     git_user_email: Mapped[str] = mapped_column(String(320), nullable=False)
     git_user_name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -62,11 +64,13 @@ class TelemetryMessage(Base):
             "status IN ('start', 'done', 'failed', 'blocked')", name="ck_message_status"
         ),
         Index("ix_message_user_updated", "user_email", "client_updated_at"),
+        Index("ix_message_kind_user_updated", "workflow_kind", "user_email", "client_updated_at"),
         Index("ix_message_step_type", "step_type"),
         Index("ix_message_ar", "ar"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    workflow_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="aaw")
     workflow_run_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("workflow_run.id", ondelete="CASCADE"), nullable=False, index=True
     )

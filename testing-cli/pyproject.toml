@@ -1,0 +1,15 @@
+[project]
+name = "testwf"
+version = "0.1.0"
+description = "Independent testing workflow CLI with telemetry delivery"
+requires-python = ">=3.11"
+
+[project.scripts]
+testwf = "testwf.telemetry:main"
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

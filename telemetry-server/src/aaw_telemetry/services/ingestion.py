@@ -90,7 +90,9 @@ class IngestionService:
         self.projects = projects
         self.settings = settings
 
-    def process(self, payload: TelemetrySyncRequest, request_id: str) -> TelemetrySyncResponse:
+    def process(
+        self, payload: TelemetrySyncRequest, request_id: str, *, workflow_kind: str = "aaw"
+    ) -> TelemetrySyncResponse:
         now = datetime.now(UTC)
         payload_hash = _payload_hash(payload)
         existing = self.session.get(TelemetryMessage, payload.message_id)
@@ -137,14 +139,14 @@ class IngestionService:
         try:
             workflow = self._lock_workflow(payload.workflow_id)
             if workflow is None:
-                workflow = self._create_workflow(payload, payload_hash, now)
+                workflow = self._create_workflow(payload, payload_hash, now, workflow_kind)
                 self.session.add(workflow)
                 self.session.flush()
                 workflow_created = True
             else:
-                self._validate_and_update_workflow(workflow, payload, payload_hash, now)
+                self._validate_and_update_workflow(workflow, payload, payload_hash, now, workflow_kind)
 
-            message = self._create_message(payload, payload_hash, now)
+            message = self._create_message(payload, payload_hash, now, workflow_kind)
             self.session.add(message)
             step_execution, step_created = self._upsert_step(payload, payload_hash, now)
             if step_created:
@@ -227,10 +229,11 @@ class IngestionService:
 
     @staticmethod
     def _create_workflow(
-        payload: TelemetrySyncRequest, payload_hash: str, now: datetime
+        payload: TelemetrySyncRequest, payload_hash: str, now: datetime, workflow_kind: str
     ) -> WorkflowRun:
         return WorkflowRun(
             id=payload.workflow_id,
+            workflow_kind=workflow_kind,
             project_key=payload.repository,
             git_user_email=payload.user_email,
             git_user_name=payload.user_name,
@@ -254,11 +257,14 @@ class IngestionService:
         payload: TelemetrySyncRequest,
         payload_hash: str,
         now: datetime,
+        workflow_kind: str,
     ) -> None:
         existing_started = _milliseconds(workflow.started_at)
         mismatches = []
         if workflow.project_key != payload.repository:
             mismatches.append("repository")
+        if workflow.workflow_kind != workflow_kind:
+            mismatches.append("workflow_kind")
         if workflow.sr != payload.sr:
             mismatches.append("sr")
         if existing_started != payload.started_at:
@@ -295,11 +301,12 @@ class IngestionService:
 
     @staticmethod
     def _create_message(
-        payload: TelemetrySyncRequest, payload_hash: str, now: datetime
+        payload: TelemetrySyncRequest, payload_hash: str, now: datetime, workflow_kind: str
     ) -> TelemetryMessage:
         file = payload.data.file
         return TelemetryMessage(
             id=payload.message_id,
+            workflow_kind=workflow_kind,
             workflow_run_id=payload.workflow_id,
             aaw_version=payload.aaw_version,
             user_email=payload.user_email,

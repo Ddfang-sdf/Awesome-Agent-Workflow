@@ -28,8 +28,10 @@ def _log_query(endpoint: str, result: dict, **fields) -> None:
     )
 
 
-def build_dashboard_router(session_dependency, projects: ProjectRegistry) -> APIRouter:
-    router = APIRouter(prefix="/api/v1", tags=["dashboard"])
+def build_dashboard_router(
+    session_dependency, projects: ProjectRegistry, *, prefix: str = "/api/v1", workflow_kind: str = "aaw"
+) -> APIRouter:
+    router = APIRouter(prefix=prefix, tags=["dashboard"])
 
     def filters(
         request: Request,
@@ -49,6 +51,7 @@ def build_dashboard_router(session_dependency, projects: ProjectRegistry) -> API
             aaw_version or [],
             sr or [],
             ar or [],
+            workflow_kind,
         )
 
     @router.get("/dashboard/filter-options")
