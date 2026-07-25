@@ -76,8 +76,10 @@ SR 入口必须提供 `--requirement-file`（原始需求文件），CLI 会将�
 2. 将原文写入一个临时 Markdown 文件，用它调用 `start`。
 3. 无法判断用户是否已提供原始需求时，先向用户收集需求，不得以空内容或臆造内容启动。
 4. `start` 成功后，向用户回显已保存的 `original-requirement.md` 内容（较长时回显开头
-   若干行并注明总行数），请用户确认与其提供的需求一致；不一致时由用户处理
-   （删除该文件后以正确内容重启）。
+   若干行并注明总行数），请用户确认与其提供的需求一致。用户指出不一致时，停止推进，
+   不要执行 `next`；让用户提供或确认正确原文后，修正当前 workflow 的
+   `.sdd/{SR}/original-requirement.md`，重新回显核对，再继续当前 workflow。不要重新执行
+   `start`，因为该 SR 的 `workflow.yaml` 已经存在。
 
 AR 入口要求当前仓库已经执行过 `repo-init`，并且存在 `.sdd/software_architecture.md`。如果该文件缺失，`next --json` 会在工作单的 `inputs` 中标记 blocked，且 `done` 会失败。
 

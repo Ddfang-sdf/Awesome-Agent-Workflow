@@ -29,12 +29,14 @@ entrypoints:
 CLI 使用 `start` 创建运行实例：
 
 ```bash
-aaw start --entry sr --sr SR-001
+aaw start --entry sr --sr SR-001 --requirement-file ./requirement.md
 aaw start --entry ar --sr SR-001 --ar AR-001 --title "用户管理"
 aaw start --entry ar --var SR=SR-001 --var AR=AR-001 --var TITLE="用户管理"
 ```
 
-`start` 只创建 `.sdd/<SR>/workflow.yaml` 并放入入口节点；初始化本身必须建模为普通节点。
+`start` 创建 `.sdd/<SR>/workflow.yaml` 并放入入口节点；SR 入口还会将
+`--requirement-file` 的内容原样保存为 `.sdd/<SR>/original-requirement.md`。初始化本身
+必须建模为普通节点。
 
 AR 入口同样要求仓库已经执行过 `repo-init`，并存在 `.sdd/software_architecture.md`。这个前置条件由 `ar-init.yaml` 的 required input 承载，CLI 会在 `next` 工作单中暴露缺失输入，并在 `done` 时阻断。
 
