@@ -27,11 +27,15 @@ def build_objects_router(
     settings: Settings,
     projects: ProjectRegistry,
     attribution_service: AttributionService,
+    *,
+    prefix: str = "/api/v1/objects",
+    workflow_kind: str = "aaw",
+    diff_path: str = "/step-diffs/{message_id}",
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/v1/objects", tags=["objects"])
+    router = APIRouter(prefix=prefix, tags=["objects"])
 
     @router.put(
-        "/step-diffs/{message_id}",
+        diff_path,
         response_model=DiffUploadResponse,
         summary="上传并确认开发步骤的 Git Diff",
         description=(
@@ -61,7 +65,7 @@ def build_objects_router(
                 settings,
                 projects,
                 attribution_service,
-            ).upload_diff(message_id, request.stream())
+            ).upload_diff(message_id, request.stream(), workflow_kind=workflow_kind)
         except ApiError as exc:
             logger.warning(
                 "Dev Patch 上传或校验失败，文件未确认",

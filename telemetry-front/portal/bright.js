@@ -90,6 +90,10 @@
   const charts = {};
   const selects = {};
   const $ = (s) => document.querySelector(s);
+  // 测试看板与采纳看板共用采纳指标，但不加载运营、步骤和实例明细数据。
+  const isTestDashboard = document.body.dataset.dashboard === "test";
+  const dashboardApiPrefix = document.body.dataset.dashboardApiPrefix || "/dashboard";
+  const dashboardPath = (suffix) => `${dashboardApiPrefix}${suffix}`;
 
   // ═══ FILTER CONTROLS ═══════════════════════════════════
 
@@ -306,7 +310,8 @@
   // 翻译成页面内部使用的 { code:0, data:{ summary, byComponent, byPerson, trend } }。
   const CFG = Object.assign(
     { apiBase: "/api/v1", useMock: true, timeout: 15000, credentials: "same-origin" },
-    window.APP_CONFIG || {}
+    window.APP_CONFIG || {},
+    new URLSearchParams(window.location.search).get("mock") === "1" ? { useMock: true } : {}
   );
 
   // 时间窗枚举 → 天数（页面固有维度，契约不返回）。
@@ -372,7 +377,7 @@
   // 真实接口客户端：对外与 MockApi 同形状（返回 { code:0, data }）。
   const RealApi = {
     async filterOptions() {
-      const d = await httpGet("/dashboard/filter-options");
+      const d = await httpGet(dashboardPath("/filter-options"));
       return {
         code: 0,
         data: {
@@ -391,11 +396,11 @@
       // topPj 专供「组件构成」：后端按生成代码量（dev_effective_lines）降序，
       // 取 TOP N + total，与组件明细表的分页互不干扰。
       const [ov, tr, pj, us, topPj] = await Promise.all([
-        httpGet("/dashboard/overview", filter),
-        httpGet("/dashboard/trends", { ...filter, granularity: granularityFor(params.timeRange) }),
-        httpGet("/dashboard/projects", { ...filter, page: params.componentPage || 1, page_size: params.componentPageSize || 10 }),
-        httpGet("/dashboard/users", { ...filter, page: params.personPage || 1, page_size: params.personPageSize || 10 }),
-        httpGet("/dashboard/projects", { ...filter, page: 1, page_size: TOP_COMPONENTS }),
+        httpGet(dashboardPath("/overview"), filter),
+        httpGet(dashboardPath("/trends"), { ...filter, granularity: granularityFor(params.timeRange) }),
+        httpGet(dashboardPath("/projects"), { ...filter, page: params.componentPage || 1, page_size: params.componentPageSize || 10 }),
+        httpGet(dashboardPath("/users"), { ...filter, page: params.personPage || 1, page_size: params.personPageSize || 10 }),
+        httpGet(dashboardPath("/projects"), { ...filter, page: 1, page_size: TOP_COMPONENTS }),
       ]);
 
       const p = ov.period;
@@ -488,7 +493,7 @@
     // 步骤汇总：后端固定按 step_type 聚合。
     async steps(params) {
       const filter = buildFilterParams(params);
-      const res = await httpGet("/dashboard/steps", {
+      const res = await httpGet(dashboardPath("/steps"), {
         ...filter,
         page: params.page || 1,
         page_size: params.pageSize || 10,
@@ -518,7 +523,7 @@
     // 工作流明细列表（契约 §7.6）。
     async workflows(params) {
       const filter = buildFilterParams(params);
-      const res = await httpGet("/dashboard/workflows", {
+      const res = await httpGet(dashboardPath("/workflows"), {
         ...filter, state: params.state || "active",
         page: params.page || 1, page_size: params.pageSize || 10,
       });
@@ -580,13 +585,13 @@
     // 三条线各自独立容错：任一接口失败只让对应段落显示空态，
     // 不牵连其它图表。主统计失败才算整页失败。
     const statsP = StatsApi.statistics(params);
-    const stepsP = StatsApi.steps({
+    const stepsP = isTestDashboard ? Promise.resolve(null) : StatsApi.steps({
       ...params,
       page: state.stepPage,
       pageSize: state.stepPageSize,
     })
       .catch((err) => { console.error("环节接口请求失败：", err); return null; });
-    const wfP = StatsApi.workflows({
+    const wfP = isTestDashboard ? Promise.resolve(null) : StatsApi.workflows({
       ...params,
       state: state.wfState,
       page: state.workflowPage,
@@ -681,9 +686,11 @@
     renderComponentCompo();
     renderPersonBars();
     renderLedger();
-    renderRealtime();
-    renderSteps();
-    renderWorkflows();
+    if (!isTestDashboard) {
+      renderRealtime();
+      renderSteps();
+      renderWorkflows();
+    }
   }
 
   function paintHero() {

@@ -19,6 +19,7 @@ rm -rf -- "$stage"
 install -d -m 0755 "$stage"
 tar -xzf "$release" -C "$stage"
 test -f "$stage/bright.html"
+test -f "$stage/test.html"
 test -f "$stage/config.js"
 test -f "$stage/bright.js"
 

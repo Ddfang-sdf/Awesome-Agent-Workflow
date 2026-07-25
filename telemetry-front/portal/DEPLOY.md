@@ -8,7 +8,7 @@
 部署到服务器时，把以下文件放同一目录（如 `D:/program/portal`）：
 
 ```
-bright.html   bright.css   bright.js
+bright.html   test.html    bright.css   bright.js
 config.js     mock-data.js
 ```
 
@@ -51,7 +51,8 @@ config.js     mock-data.js
    .\nginx.exe -s stop
    ```
 
-5. 浏览器访问：`http://<listen 的 IP>:<端口>/bright.html`
+5. 浏览器访问：`http://<listen 的 IP>:<端口>/bright.html`；测试看板地址为
+   `http://<listen 的 IP>:<端口>/test.html`。
 
 ## 四、后端就绪前先自测前端
 

@@ -38,11 +38,13 @@ class ObjectService:
         self.root = settings.object_storage_dir.resolve()
 
     async def upload_diff(
-        self, message_id: uuid.UUID, stream: AsyncIterator[bytes]
+        self, message_id: uuid.UUID, stream: AsyncIterator[bytes], *, workflow_kind: str = "aaw"
     ) -> ObjectUpload:
         now = datetime.now(UTC)
         message = self.session.get(TelemetryMessage, message_id)
         if message is None:
+            raise ApiError(404, "MESSAGE_NOT_FOUND", "Step message does not exist")
+        if message.workflow_kind != workflow_kind:
             raise ApiError(404, "MESSAGE_NOT_FOUND", "Step message does not exist")
         dev_run = self.session.get(DevRun, message_id)
         if dev_run is None or message.file_sha256 is None:

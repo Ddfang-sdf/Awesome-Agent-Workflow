@@ -19,6 +19,7 @@ from .routers.issues import build_issues_router
 from .routers.objects import build_objects_router
 from .routers.releases import build_releases_router
 from .routers.telemetry import build_telemetry_router
+from .routers.testing_telemetry import build_testing_telemetry_router
 from .services.attribution_service import AttributionService
 
 logger = logging.getLogger("aaw_telemetry.system")
@@ -77,8 +78,25 @@ def create_app(
     app.add_middleware(RequestContextMiddleware)
     app.include_router(build_telemetry_router(get_session, projects, settings))
     app.include_router(build_dashboard_router(get_session, projects))
+    app.include_router(build_testing_telemetry_router(get_session, projects, settings))
+    app.include_router(
+        build_dashboard_router(
+            get_session, projects, prefix="/api/v1/testing", workflow_kind="testing"
+        )
+    )
     app.include_router(build_issues_router(get_session))
     app.include_router(build_objects_router(get_session, settings, projects, attribution_service))
+    app.include_router(
+        build_objects_router(
+            get_session,
+            settings,
+            projects,
+            attribution_service,
+            prefix="/api/v1/testing/objects",
+            workflow_kind="testing",
+            diff_path="/code-changes/{message_id}",
+        )
+    )
     app.include_router(build_releases_router(settings))
     logger.info(
         "服务配置加载完成",
