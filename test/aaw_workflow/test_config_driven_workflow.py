@@ -118,7 +118,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         return wf
 
     def _workflow_at_sr_gate(self, sr: str):
-        wf = self.mgr.start("sr", {"SR": sr})
+        wf = self.mgr.start("sr", {"SR": sr}, "req")
         self._done(wf, 1)
         self._done(wf, 2)
         return wf
@@ -181,7 +181,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual("ar", payload["entry"])
 
     def test_start_sr_entry_creates_init_work_order(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-001"})
+        wf = self.mgr.start("sr", {"SR": "SR-001"}, "req")
         payload = self.mgr.build_next_payload(wf)
 
         self.assertFalse(payload["done"])
@@ -195,7 +195,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertTrue((self.sdd / "SR-001" / ".aaw" / "data").is_dir())
 
     def test_deliverables_exist_marks_required_output_as_skippable(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-001"})
+        wf = self.mgr.start("sr", {"SR": "SR-001"}, "req")
         arch = self.sdd / "software_architecture.md"
         arch.write_text("architecture", "utf-8")
 
@@ -205,7 +205,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertTrue(order["deliverables_exist"])
 
     def test_missing_required_output_blocks_done(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-OUTPUT"})
+        wf = self.mgr.start("sr", {"SR": "SR-OUTPUT"}, "req")
 
         with self.assertRaises(WorkflowError):
             self.mgr.mark_done(wf, 1)
@@ -229,7 +229,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual("sr-design", self.mgr.get_ready(wf)[0].type)
 
     def test_done_waits_for_user_confirm_on_must_edge(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-CONFIRM"})
+        wf = self.mgr.start("sr", {"SR": "SR-CONFIRM"}, "req")
         self._touch_required_outputs(wf, 1)
         self.mgr.mark_started(wf, 1)
 
@@ -255,7 +255,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual("sr-design", self.mgr.get_ready(wf)[0].type)
 
     def test_step_execution_timestamps_are_persisted_in_workflow_yaml(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-TIMESTAMPS"})
+        wf = self.mgr.start("sr", {"SR": "SR-TIMESTAMPS"}, "req")
 
         step = self.mgr.mark_started(wf, 1)
         started_at = step.started_at
@@ -273,7 +273,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(completed.ended_at, started_at)
 
     def test_next_retries_same_start_message_after_initial_transition(self) -> None:
-        self.mgr.start("sr", {"SR": "SR-RUNNING"})
+        self.mgr.start("sr", {"SR": "SR-RUNNING"}, "req")
         store = MagicMock()
         message = {"message_id": "start-message", "data": {"status": "start"}}
         store.step_message.return_value = message
@@ -394,7 +394,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual("aaw done --sr SR-001 4 --data '<JSON>' --json", order["commands"]["legacy_done"])
 
     def test_sr_design_generates_gate_with_optional_report_without_confirmation(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-GATE"})
+        wf = self.mgr.start("sr", {"SR": "SR-GATE"}, "req")
         self._done(wf, 1)
         self.mgr.mark_started(wf, 2)
         self._touch_required_outputs(wf, 2)
@@ -407,7 +407,11 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual("sr-design-gate", gate.type)
         self.assertEqual(["sr-design-gate"], gate.skill)
         self.assertEqual(
-            [".sdd/software_architecture.md", ".sdd/SR-GATE/SR-design.md"],
+            [
+                ".sdd/software_architecture.md",
+                ".sdd/SR-GATE/original-requirement.md",
+                ".sdd/SR-GATE/SR-design.md",
+            ],
             [item["path"] for item in gate.input],
         )
         self.assertTrue(all(item["required"] for item in gate.input))
@@ -505,8 +509,11 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
     def test_cli_done_accepts_data_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cwd = Path(tmp)
+            req_file = cwd / "req.md"
+            req_file.write_text("原始需求内容", "utf-8")
             subprocess.run(
-                [sys.executable, str(AAW_SCRIPT), "start", "--entry", "sr", "--sr", "SR-DATAFILE", "--json"],
+                [sys.executable, str(AAW_SCRIPT), "start", "--entry", "sr", "--sr", "SR-DATAFILE",
+                 "--requirement-file", str(req_file), "--json"],
                 cwd=cwd,
                 check=True,
                 text=True,
@@ -878,7 +885,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual([], wf.steps[0].next)
 
     def test_io_paths_are_stored_repo_relative(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-REL"})
+        wf = self.mgr.start("sr", {"SR": "SR-REL"}, "req")
         step = wf.get_step(1)
         assert step is not None
 
@@ -893,7 +900,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
 
     def test_workflow_is_portable_after_moving_sdd_dir(self) -> None:
         # Author the workflow and produce the required deliverable under root A.
-        wf = self.mgr.start("sr", {"SR": "SR-MOVE"})
+        wf = self.mgr.start("sr", {"SR": "SR-MOVE"}, "req")
         self.mgr.mark_started(wf, 1)
         self._touch_required_outputs(wf, 1)
 

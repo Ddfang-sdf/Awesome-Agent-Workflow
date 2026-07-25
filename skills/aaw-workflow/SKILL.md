@@ -1,6 +1,6 @@
 ---
 name: aaw-workflow
-version: "2.3.2.0"
+version: "2.3.2.1"
 description: 配置驱动的 AAW 工作流 CLI 入口技能。读取 aaw CLI 返回的自描述工作单，按工作单调用子技能、执行 prompt、检查交付件并推进流程。
 ---
 
@@ -63,9 +63,21 @@ uv run <skill-dir>/scripts/aaw.py next --sr SR-XXX --json
 使用入口启动一条工作流：
 
 ```bash
-uv run <skill-dir>/scripts/aaw.py start --entry sr --sr SR-XXX --json
+uv run <skill-dir>/scripts/aaw.py start --entry sr --sr SR-XXX --requirement-file <需求文件> --json
 uv run <skill-dir>/scripts/aaw.py start --entry ar --sr SR-XXX --ar AR-XXX --title "AR描述" --json
 ```
+
+SR 入口必须提供 `--requirement-file`（原始需求文件），CLI 会将其原样保存为
+`.sdd/{SR}/original-requirement.md`，作为 `sr-design` 和 `sr-design-gate` 的正式输入。
+启动前按以下方式准备需求文件：
+
+1. 提取用户明确作为原始需求提供的文本，保持原文，不总结、不改写、不做设计性加工；
+   需求分布在多个段落时按原顺序完整保存。普通讨论、Agent 的解释和设计推导不得混入。
+2. 将原文写入一个临时 Markdown 文件，用它调用 `start`。
+3. 无法判断用户是否已提供原始需求时，先向用户收集需求，不得以空内容或臆造内容启动。
+4. `start` 成功后，向用户回显已保存的 `original-requirement.md` 内容（较长时回显开头
+   若干行并注明总行数），请用户确认与其提供的需求一致；不一致时由用户处理
+   （删除该文件后以正确内容重启）。
 
 AR 入口要求当前仓库已经执行过 `repo-init`，并且存在 `.sdd/software_architecture.md`。如果该文件缺失，`next --json` 会在工作单的 `inputs` 中标记 blocked，且 `done` 会失败。
 
@@ -129,7 +141,7 @@ uv run <skill-dir>/scripts/aaw.py start --entry ar --var SR=SR-XXX --var AR=AR-X
 uv run <skill-dir>/scripts/aaw.py update --json
 
 # 启动
-uv run <skill-dir>/scripts/aaw.py start --entry sr --sr SR-XXX --json
+uv run <skill-dir>/scripts/aaw.py start --entry sr --sr SR-XXX --requirement-file <需求文件> --json
 uv run <skill-dir>/scripts/aaw.py start --entry ar --sr SR-XXX --ar AR-XXX --title "AR描述" --json
 
 # 查看

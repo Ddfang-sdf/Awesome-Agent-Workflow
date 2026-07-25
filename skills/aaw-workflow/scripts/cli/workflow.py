@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from shlex import quote
@@ -496,7 +497,12 @@ class WorkflowManager:
 
     # ---- bootstrap ----
 
-    def start(self, entry: str, vars_: dict[str, Any]) -> Workflow:
+    def start(
+        self,
+        entry: str,
+        vars_: dict[str, Any],
+        requirement_content: str | None = None,
+    ) -> Workflow:
         entry_def = self.entrypoints.get(entry)
         if not entry_def:
             raise WorkflowError(f"入口不存在: {entry}")
@@ -510,30 +516,72 @@ class WorkflowManager:
         if not sr:
             raise WorkflowError("缺少 SR 变量，无法创建 workflow.yaml")
 
-        self.sdd_dir.mkdir(parents=True, exist_ok=True)
-        sr_dir = self.sdd_dir / sr
-        if self._wf_path(sr).exists():
-            raise WorkflowError(f"SR {sr} workflow 已存在")
-        sr_dir.mkdir(parents=True, exist_ok=True)
-        self._data_dir(sr).mkdir(parents=True, exist_ok=True)
+        if entry == "sr" and (requirement_content is None or requirement_content == ""):
+            raise WorkflowError("入口 sr 必须提供非空的原始需求（--requirement-file）")
 
         start_type = entry_def["start"]
         if start_type not in self.templates:
             raise WorkflowError(f"入口 {entry} 指向未知节点: {start_type}")
 
-        wf_vars = dict(vars_)
-        wf_vars["SR"] = sr
-        step1 = _make_step(self.templates[start_type], 1, wf_vars, self.sdd_dir)
-        wf = Workflow(
-            sr=sr,
-            entry=entry,
-            status="in_progress",
-            created_at=datetime.now(timezone.utc).isoformat(),
-            vars=wf_vars,
-            steps=[step1],
-        )
-        self._save(wf)
+        self.sdd_dir.mkdir(parents=True, exist_ok=True)
+        sr_dir = self.sdd_dir / sr
+        if self._wf_path(sr).exists():
+            raise WorkflowError(f"SR {sr} workflow 已存在")
+
+        # Track what this call newly creates so a mid-way failure can roll back
+        # without touching anything that predated the call.
+        created_sr_dir = not sr_dir.exists()
+        wrote_requirement = False
+        try:
+            sr_dir.mkdir(parents=True, exist_ok=True)
+            self._data_dir(sr).mkdir(parents=True, exist_ok=True)
+
+            if requirement_content is not None:
+                wrote_requirement = self._persist_original_requirement(sr, requirement_content)
+
+            wf_vars = dict(vars_)
+            wf_vars["SR"] = sr
+            step1 = _make_step(self.templates[start_type], 1, wf_vars, self.sdd_dir)
+            wf = Workflow(
+                sr=sr,
+                entry=entry,
+                status="in_progress",
+                created_at=datetime.now(timezone.utc).isoformat(),
+                vars=wf_vars,
+                steps=[step1],
+            )
+            self._save(wf)
+        except Exception:
+            self._rollback_start(sr_dir, created_sr_dir, wrote_requirement)
+            raise
         return wf
+
+    def _original_requirement_path(self, sr: str) -> Path:
+        return self.sdd_dir / sr / "original-requirement.md"
+
+    def _persist_original_requirement(self, sr: str, content: str) -> bool:
+        """Write the original requirement verbatim. Idempotent when the target
+        already holds byte-identical content; refuses to overwrite on mismatch.
+
+        Returns True if this call created the file (for rollback tracking).
+        """
+        path = self._original_requirement_path(sr)
+        payload = content.encode("utf-8")
+        if path.exists():
+            if path.read_bytes() == payload:
+                return False
+            raise WorkflowError(
+                f"原始需求文件已存在且内容不一致: .sdd/{sr}/original-requirement.md；"
+                "请确认保留旧文件或手动删除后重启，不会静默覆盖"
+            )
+        path.write_bytes(payload)
+        return True
+
+    def _rollback_start(self, sr_dir: Path, created_sr_dir: bool, wrote_requirement: bool) -> None:
+        if created_sr_dir:
+            shutil.rmtree(sr_dir, ignore_errors=True)
+        elif wrote_requirement:
+            self._original_requirement_path(sr_dir.name).unlink(missing_ok=True)
 
     # ---- load / save ----
 

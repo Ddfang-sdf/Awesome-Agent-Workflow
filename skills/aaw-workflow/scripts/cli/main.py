@@ -89,6 +89,24 @@ def _parse_vars(
 # start
 # ---------------------------------------------------------------------------
 
+def _read_requirement_file(entry: str, requirement_file: str | None) -> str | None:
+    """Read the original requirement verbatim (UTF-8). Only entry ``sr`` uses it."""
+    if entry != "sr":
+        return None
+    if not requirement_file:
+        raise WorkflowError("--entry sr 必须提供 --requirement-file <原始需求文件>")
+    path = Path(requirement_file)
+    if not path.is_file():
+        raise WorkflowError(f"原始需求文件不存在或不可读: {requirement_file}")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        raise WorkflowError(f"原始需求文件读取失败（需为 UTF-8 文本）: {e}")
+    if not content.strip():
+        raise WorkflowError(f"原始需求文件内容为空: {requirement_file}")
+    return content
+
+
 @app.command()
 def start(
     entry: Annotated[str, typer.Option("--entry", help="入口名称，如 sr / ar")] = "sr",
@@ -96,13 +114,18 @@ def start(
     sr: Annotated[str | None, typer.Option("--sr", help="SR 需求号，等价于 --var SR=...")] = None,
     ar: Annotated[str | None, typer.Option("--ar", help="AR 编号，等价于 --var AR=...")] = None,
     title: Annotated[str | None, typer.Option("--title", help="AR 描述，等价于 --var 描述=...")] = None,
+    requirement_file: Annotated[
+        str | None,
+        typer.Option("--requirement-file", help="原始需求文件路径（--entry sr 必填），原样保存为 .sdd/{SR}/original-requirement.md"),
+    ] = None,
     use_json: Annotated[bool, typer.Option("--json/--no-json", help="JSON 输出")] = False,
 ):
     """创建 workflow.yaml，并放入配置指定的入口节点。"""
     mgr = _get_manager()
     try:
         vars_ = _parse_vars(var, sr, ar, title)
-        wf = mgr.start(entry, vars_)
+        requirement_content = _read_requirement_file(entry, requirement_file)
+        wf = mgr.start(entry, vars_, requirement_content)
     except WorkflowError as e:
         _die(str(e))
 
@@ -115,11 +138,21 @@ def start(
         "workflow": str(mgr._wf_path(wf.sr)),
         "steps": [{"id": s.id, "type": s.type, "name": s.name} for s in wf.steps],
     }
+    if requirement_content is not None:
+        req_path = mgr._original_requirement_path(wf.sr)
+        payload["original_requirement"] = {
+            "path": str(req_path),
+            "line_count": requirement_content.count("\n") + (0 if requirement_content.endswith("\n") else 1),
+            "char_count": len(requirement_content),
+        }
     if use_json:
         _echo_json(payload)
     else:
         typer.echo(f"SR {wf.sr} 已启动，入口 {wf.entry}")
         typer.echo(f"  {mgr._wf_path(wf.sr)}")
+        if requirement_content is not None:
+            typer.echo(f"  原始需求已保存: {mgr._original_requirement_path(wf.sr)}")
+            typer.echo("  请与用户核对已保存的原始需求内容是否与其提供的一致")
         typer.echo("  下一步: aaw next --sr <SR> --json")
 
 
