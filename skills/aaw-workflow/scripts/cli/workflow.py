@@ -1112,7 +1112,7 @@ class WorkflowManager:
 
     # ---- rollback ----
 
-    def rollback(self, wf: Workflow, step_id: int) -> dict[str, Any]:
+    def _rollback_scope(self, wf: Workflow, step_id: int) -> tuple[Step, set[int], list[Step]]:
         if wf.pending_user_confirm and int(wf.pending_user_confirm.get("from_step", -1)) != step_id:
             raise WorkflowError("当前存在待用户确认的流转，请先确认或回退待确认来源 step")
         step = wf.get_step(step_id)
@@ -1131,30 +1131,95 @@ class WorkflowManager:
             if ns:
                 desc_steps.append(ns)
                 queue.extend(self._dependent_step_ids(wf, ns.id))
+        return step, descendants, desc_steps
 
-        deleted_files: list[str] = []
-        dirs_to_check: set[Path] = set()
-        for ds in desc_steps:
-            for item in ds.output:
+    def _rollback_artifacts(self, steps: list[Step]) -> list[dict[str, Any]]:
+        artifacts: dict[str, dict[str, Any]] = {}
+        for owner in steps:
+            for item in owner.output:
                 out_path = item.get("path")
                 if not out_path:
                     continue
-                p = self._resolve(out_path)
-                if p.exists() and p.is_file():
+                artifact = artifacts.setdefault(
+                    out_path,
+                    {
+                        "path": out_path,
+                        "abs_path": str(self._resolve(out_path).resolve()).replace("\\", "/"),
+                        "exists": self._resolve(out_path).exists(),
+                        "owner_step_ids": [],
+                    },
+                )
+                if owner.id not in artifact["owner_step_ids"]:
+                    artifact["owner_step_ids"].append(owner.id)
+        return list(artifacts.values())
+
+    def rollback_preview(self, wf: Workflow, step_id: int) -> dict[str, Any]:
+        step, descendants, desc_steps = self._rollback_scope(wf, step_id)
+        return {
+            "ok": True,
+            "status": "confirmation_required",
+            "target_step": {"id": step.id, "type": step.type, "name": step.name},
+            "invalidated_step_ids": sorted(descendants),
+            "affected_steps": [
+                {"id": item.id, "type": item.type, "name": item.name}
+                for item in [step, *desc_steps]
+            ],
+            "managed_artifacts": self._rollback_artifacts([step, *desc_steps]),
+        }
+
+    def rollback(self, wf: Workflow, step_id: int, artifact_policy: str) -> dict[str, Any]:
+        if artifact_policy not in {"preserve", "discard"}:
+            raise WorkflowError("--artifacts 必须是 preserve 或 discard")
+        step, descendants, desc_steps = self._rollback_scope(wf, step_id)
+        managed_artifacts = self._rollback_artifacts([step, *desc_steps])
+
+        deleted_files: list[str] = []
+        skipped_artifacts: list[dict[str, str]] = []
+        if artifact_policy == "discard":
+            dirs_to_check: set[Path] = set()
+            for artifact in managed_artifacts:
+                p = self._resolve(artifact["path"])
+                if not p.exists():
+                    continue
+                if p.is_file():
                     p.unlink()
                     deleted_files.append(str(p))
                     dirs_to_check.add(p.parent)
-
-        self._cleanup_empty_dirs(dirs_to_check, deleted_files)
+                else:
+                    skipped_artifacts.append(
+                        {
+                            "path": artifact["path"],
+                            "reason": "不是普通文件，CLI 未自动删除",
+                        }
+                    )
+            self._cleanup_empty_dirs(dirs_to_check, deleted_files)
 
         step.finished = False
         step.next = []
+        step.result_data = None
         if wf.pending_user_confirm and int(wf.pending_user_confirm.get("from_step", -1)) == step_id:
             wf.pending_user_confirm = None
         wf.steps = [s for s in wf.steps if s.id not in descendants]
         wf.status = "in_progress"
         self._save(wf)
-        return {"ok": True, "removed": len(descendants), "deleted_files": deleted_files}
+        for artifact in managed_artifacts:
+            artifact["exists_after"] = self._resolve(artifact["path"]).exists()
+        return {
+            "ok": True,
+            "status": "rolled_back",
+            "artifact_policy": artifact_policy,
+            "target_step": {"id": step.id, "type": step.type, "name": step.name},
+            "removed": len(descendants),
+            "invalidated_step_ids": sorted(descendants),
+            "managed_artifacts": managed_artifacts,
+            "deleted_files": deleted_files,
+            "preserved_files": [
+                artifact["abs_path"]
+                for artifact in managed_artifacts
+                if artifact["exists"] and artifact_policy == "preserve"
+            ],
+            "skipped_artifacts": skipped_artifacts,
+        }
 
     def _cleanup_empty_dirs(self, dirs_to_check: set[Path], deleted_files: list[str]) -> None:
         protected = self.sdd_dir.resolve()

@@ -427,6 +427,8 @@ aaw next --sr SR-001 --json     # JSON（Agent 调用）
 }
 ```
 
+`ready` 是是否执行 step 的唯一依据。即使工作单中的 required output 已经存在，Agent 仍必须执行当前 step；已有输出作为本轮修改基线，可局部修改或整体重写，但必须写回原路径，不能据此直接 `done`。required output 是否存在仅用于 `done` 前的交付校验。
+
 ### `aaw done`
 
 ```bash
@@ -445,6 +447,22 @@ aaw user-confirm --sr SR-001 --json
 ```
 
 用于确认 `pending_user_confirm` 中暂存的下游计划。执行成功后，CLI 将 planned steps 追加到 `steps`，并把来源 step 的 `next` 填入对应 id。
+
+### `aaw rollback`
+
+```bash
+# 只返回回退影响范围和成果物策略，不修改状态或文件
+aaw rollback --sr SR-001 <id> --json
+
+# 用户明确选择后执行
+aaw rollback --sr SR-001 <id> --artifacts preserve --json
+aaw rollback --sr SR-001 <id> --artifacts discard --json
+```
+
+无 `--artifacts` 时返回 `confirmation_required`、目标 step、失效的下游 step、CLI 登记的成果物和两个 choice。Agent 必须向用户确认后直接执行所选 `command_argv`。
+
+- `preserve`：回退状态并移除下游 step，不删除文件；重新执行时以已有成果为基线，可局部修改或整体重写并写回原路径。
+- `discard`：回退状态，并删除目标及下游 step 在 `output` 中登记的普通文件；未登记的代码、目录和其他文件不在自动删除范围内。
 
 `--data` 三种结构：
 

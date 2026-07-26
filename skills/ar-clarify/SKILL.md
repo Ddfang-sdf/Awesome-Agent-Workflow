@@ -25,6 +25,8 @@ triggers:
 
 本节最多询问一次，不得重复打扰。
 
+若工作单输出已存在，仍按当前要求完整执行：先读取并评估已有成果，复用仍有效的信息和已确认答案，可局部修改或整体重写，并写回原路径。
+
 本 Skill 依赖 question-tracker MCP Server，提供以下工具：add_questions、answer_question、update_answer、get_status、finalize_questions、reset_questions。使用前请确保该 MCP Server 已注册到当前环境。
 
 若调用 MCP 工具报错（未注册或连接失败），不得跳过问题池跟踪继续执行：中止当前流程，提示用户参照 `skills/question-tracker-mcp/INSTALL.md` 完成注册并重启后重试。

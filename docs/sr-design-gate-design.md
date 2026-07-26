@@ -665,8 +665,8 @@ Gate step 保持未完成，补齐输入或决策后在同一步骤复检。
 
 ### 16.4 Rollback 约束
 
-不要自动执行 `aaw rollback`。只有用户明确要求重走上游节点，或已经生成需要废弃的
-下游 step 时，才使用 rollback。
+不要自动执行 `aaw rollback`。只有用户明确要求重走上游节点时，才先获取 rollback
+预览，并让用户选择保留成果物返工或删除 CLI 登记的成果物后重做。
 
 ## 十七、多轮整改与复检
 
@@ -729,7 +729,8 @@ rollback 到 `sr-design`，再按新流程生成 Gate。
 6. `pass` 后进入等待用户确认，用户确认后生成 `ar-split`；
 7. `fail` 和 `blocked` 不生成下游并保持 Gate unfinished；
 8. AR 直接入口不经过 Gate；
-9. rollback 到 `sr-design` 删除 Gate 及其已有结果文件；
+9. rollback 到 `sr-design` 时先返回影响预览；选择 `preserve` 保留 Gate 及其结果文件，
+   选择 `discard` 才删除目标及下游登记成果；
 10. workflow 目录移动后输入输出仍按相对路径解析。
 
 ### 19.2 冲突 fixture

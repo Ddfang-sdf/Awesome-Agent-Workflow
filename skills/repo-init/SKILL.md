@@ -7,6 +7,8 @@ version: "2.3.2.0"
 # Repo Init
 Make a todo list to follow this workflow below.
 
+若工作单输出已存在，仍按当前要求完整执行：先读取并评估已有成果，复用仍有效的信息和已确认答案，可局部修改或整体重写，并写回原路径。
+
 ### Phase 1 Launch a subagent to initiate directory
 excute `<skill-dir>/scripts/create_sdd_structure.py` in the skill to initiate directory
 
@@ -32,15 +34,14 @@ if `javascript`:
 |__ Copy `<skill-dir>/assets/js-spec.md` to `./.sdd/spec.md`
 
 ### Phase 4 Launch a subagent to Write software_architecture.md
-if software_architecture.md is existed in './.sdd/' 
-- skip this phase.
+if software_architecture.md is existed in './.sdd/'
+- 读取并更新现有文件，不得因文件存在而跳过。
 
 else
 - Launch a subagent to survey the codebase，Fill in all placeholders '{{***}}' in software_architecture.md，IMPORTANT: do NOT modify or fill in any placeholders in 'section 1.2' and 'section 1.3' and 目录.
-
 ### Phase 5 Launch a subagent to Write AGENTS.md
-if AGENTS.md is existed in './' 
-- skip this phase.
+if AGENTS.md is existed in './'
+- 读取并更新现有文件，只修改过期或缺失内容。
 
 else
 
