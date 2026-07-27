@@ -6,8 +6,8 @@
 <meta name="description" content="AAW 让需求描述、SR 设计、AR 设计与代码实现形成可追溯的信息链，减少人与人之间的信息传递失真。">
 <title>AAW 工作流介绍 · Adoption Studio</title>
 <link rel="stylesheet" href="vendor/fonts.css">
-<link rel="stylesheet" href="aaw-workflow.css?v=20260727-3">
-<script defer src="aaw-workflow.js?v=20260727-2"></script>
+<link rel="stylesheet" href="aaw-workflow.css?v=20260727-10">
+<script defer src="aaw-workflow.js?v=20260727-5"></script>
 </head>
 <body>
 <div class="paper-grid" aria-hidden="true"></div>
@@ -27,38 +27,110 @@
 </header>
 
 <main>
-  <section class="hero" aria-labelledby="hero-title">
-    <div class="hero__copy">
-      <p class="eyebrow"><span>全链路信息保真</span> REQUIREMENT TRACEABILITY</p>
-      <h1 id="hero-title">让需求在每一次传递中，<em>都不失真。</em></h1>
-      <p class="hero__lead">AAW 串联需求描述、SR 设计、AR 设计与代码实现，让每个决策有来源、每次变更可追溯、每个角色基于同一份上下文协作。</p>
-      <div class="hero__actions">
-        <a class="button button--primary" href="#start">三步开始使用 <span aria-hidden="true">→</span></a>
-        <a class="button button--quiet" href="#workflow">查看完整流程</a>
+  <section class="hero" id="start" aria-labelledby="hero-title">
+    <div class="hero-overview">
+      <div class="hero__copy">
+        <p class="eyebrow"><span>全链路信息保真</span> REQUIREMENT TRACEABILITY</p>
+        <h1 id="hero-title">让需求在每一次传递中，<em>都不失真。</em></h1>
+        <p class="hero__lead">AAW 串联需求描述、SR 设计、AR 设计与代码实现，让每个角色基于同一份上下文协作。</p>
       </div>
-      <ul class="hero__proof" aria-label="AAW 核心能力">
-        <li><b>同一上下文</b><span>跨角色持续继承</span></li>
-        <li><b>两道门禁</b><span>分歧在实现前暴露</span></li>
-        <li><b>完整证据链</b><span>从需求追溯到交付</span></li>
-      </ul>
+
+      <div class="trace-card" aria-label="从需求到交付的上下文传递示意">
+        <header>
+          <span><i aria-hidden="true"></i> LIVE CONTEXT</span>
+          <a href="#workflow">查看完整流程 →</a>
+        </header>
+        <div class="trace-source">
+          <small>ORIGINAL INTENT</small>
+          <strong>“为什么做、要解决什么、不能破坏什么”</strong>
+        </div>
+        <ol class="trace-chain">
+          <li><span>01</span><b>需求描述</b><em>原始意图</em></li>
+          <li><span>02</span><b>SR 设计</b><em>系统决策</em></li>
+          <li><span>03</span><b>AR 设计</b><em>变更边界</em></li>
+          <li><span>04</span><b>代码实现</b><em>工程落点</em></li>
+        </ol>
+        <ul class="hero__proof" aria-label="AAW 核心能力">
+          <li><b>同一上下文</b><span>跨角色持续继承</span></li>
+          <li><b>两道门禁</b><span>分歧在实现前暴露</span></li>
+          <li><b>完整证据链</b><span>从需求追溯到交付</span></li>
+        </ul>
+      </div>
     </div>
 
-    <div class="trace-card" aria-label="从需求到交付的上下文传递示意">
-      <header>
-        <span><i aria-hidden="true"></i> LIVE CONTEXT</span>
-        <b>信息完整度</b>
-      </header>
-      <div class="trace-source">
-        <small>ORIGINAL INTENT</small>
-        <strong>“为什么做、要解决什么、不能破坏什么”</strong>
+    <div class="terminal-demo hero-terminal" data-terminal-demo data-phase="command-typing" data-active-entry="ar" data-playing="true" aria-label="AAW 工作流 Agent 对话演示">
+      <div class="terminal-demo__bar">
+        <span class="terminal-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="terminal-demo__identity"><i aria-hidden="true">◆</i> AI CODING ASSISTANT</span>
+        <div class="terminal-demo__actions">
+          <span class="terminal-demo__switch-label">演示</span>
+          <button type="button" data-terminal-entry="ar" aria-pressed="true"><b>AR入口</b></button>
+          <button type="button" data-terminal-entry="sr" aria-pressed="false"><b>SR入口</b></button>
+          <button type="button" data-terminal-toggle aria-label="暂停演示"><span aria-hidden="true">Ⅱ</span><b>暂停</b></button>
+          <button type="button" data-terminal-replay aria-label="重新播放演示"><span aria-hidden="true">↻</span><b>重播</b></button>
+        </div>
       </div>
-      <ol class="trace-chain">
-        <li style="--step:0"><span>01</span><b>需求描述</b><em>原始意图</em></li>
-        <li style="--step:1"><span>02</span><b>SR 设计</b><em>系统决策</em></li>
-        <li style="--step:2"><span>03</span><b>AR 设计</b><em>变更边界</em></li>
-        <li style="--step:3"><span>04</span><b>代码实现</b><em>工程落点</em></li>
-      </ol>
-      <div class="trace-status"><span>上下文持续继承</span><b>可追溯</b></div>
+
+      <div class="terminal-screen">
+        <div class="terminal-context">
+          <span>WORKSPACE</span>
+          <b>awesome-agent-workflow</b>
+          <small>main · clean</small>
+          <ol class="terminal-steps" aria-label="三个使用步骤">
+            <li><i>01</i><b>发送命令</b><small>/aaw-workflow</small></li>
+            <li><i>02</i><b>回复入口</b><small>AR入口 / SR入口</small></li>
+            <li><i>03</i><b>Agent 执行</b><small>衔接已有上下文</small></li>
+          </ol>
+        </div>
+
+        <div class="terminal-transcript">
+          <div class="terminal-conversation" aria-live="polite">
+            <div class="terminal-message terminal-message--user terminal-user-command">
+              <span>You</span>
+              <p><code>/aaw-workflow</code></p>
+            </div>
+
+            <div class="terminal-message terminal-message--agent terminal-detection">
+              <span>Agent</span>
+              <div>
+                <p><i aria-hidden="true">✓</i> 已读取仓库上下文 <small>branch · modules · constraints</small></p>
+                <p><i aria-hidden="true">✓</i> <span data-terminal-baseline>已发现软件架构基线</span></p>
+                <p><i aria-hidden="true">✓</i> 已检查工作流进度 <small>.sdd/&lt;SR&gt;/workflow.yaml</small></p>
+              </div>
+            </div>
+
+            <div class="terminal-message terminal-message--agent terminal-entry">
+              <span>Agent</span>
+              <div>
+                <p>请选择本次工作的入口：</p>
+                <ol><li>AR入口</li><li>SR入口</li></ol>
+              </div>
+            </div>
+
+            <div class="terminal-message terminal-message--user terminal-user-entry">
+              <span>You</span>
+              <p data-terminal-entry-reply>AR入口</p>
+            </div>
+
+            <div class="terminal-message terminal-message--agent terminal-result">
+              <span>Agent</span>
+              <div>
+                <p><b data-terminal-result-label>已选择 AR 入口</b></p>
+                <p><i aria-hidden="true">✓</i> <span data-terminal-result-check>已发现软件架构基线，可直接复用</span></p>
+                <p><i aria-hidden="true">→</i> <span data-terminal-result-title>准备执行 ar-init / ar-clarify</span></p>
+                <p><i aria-hidden="true">→</i> <span data-terminal-result-copy>下一步：澄清本次变更的目标、范围与约束</span></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="terminal-composer" aria-label="Agent 对话输入框">
+            <span class="terminal-composer__prompt" aria-hidden="true">›</span>
+            <code data-terminal-input></code>
+            <span class="terminal-cursor" aria-hidden="true"></span>
+            <span class="terminal-enter"><kbd>Enter</kbd> 发送</span>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -69,124 +141,32 @@
       <p>代码越来越容易生成，准确传递意图却仍然昂贵。AAW 让信息不靠人的记忆和转述，而靠连续、可核验的工作流资产传递。</p>
     </div>
 
-    <div class="compare-grid">
-      <article class="compare-card compare-card--risk">
-        <header><span class="compare-icon" aria-hidden="true">×</span><div><small>WITHOUT AAW</small><h3>失真链</h3></div></header>
-        <div class="message-chain message-chain--broken" aria-label="传统协作中的信息失真">
-          <p><span>产品</span><b>完整需求 + 背景约束</b></p>
-          <i aria-hidden="true">“大概是这个意思”</i>
-          <p><span>设计</span><b>部分需求 + 个人理解</b></p>
-          <i aria-hidden="true">“细节开发再确认”</i>
-          <p><span>开发</span><b>任务标题 + 零散上下文</b></p>
-        </div>
-        <ul>
-          <li>反复开会重新对齐</li>
-          <li>分歧推迟到编码与测试阶段</li>
-          <li>无法回答“为什么这样实现”</li>
-        </ul>
+    <div class="value-matrix" aria-label="信息失真点、AAW 机制与可验证结果对照">
+      <div class="value-matrix__head"><span>信息在哪里失真</span><span>AAW 如何保真</span><span>最终得到什么</span></div>
+      <article>
+        <div><small>01 / ROLE HANDOFF</small><b>角色切换靠口头转述</b><p>背景、约束与取舍被压缩成任务标题。</p></div>
+        <div><small>TRACEABLE ASSET</small><b>上游产物自动成为下游输入</b><p>需求描述、SR、AR 与详设沿同一路径持续继承。</p></div>
+        <div><small>RESULT</small><b>少一次上下文重建</b><p>每个角色从同一份已确认事实开始工作。</p></div>
       </article>
-
-      <article class="compare-card compare-card--good">
-        <header><span class="compare-icon" aria-hidden="true">✓</span><div><small>WITH AAW</small><h3>可追溯链</h3></div></header>
-        <div class="message-chain message-chain--kept" aria-label="AAW 中持续继承的上下文">
-          <p><span>需求描述</span><b>目标 · 背景 · 约束</b></p>
-          <i aria-hidden="true">有来源地传递</i>
-          <p><span>SR / AR 设计</span><b>决策 · 边界 · 证据</b></p>
-          <i aria-hidden="true">经门禁地放行</i>
-          <p><span>测试与实现</span><b>任务 · 验证 · 工程落点</b></p>
-        </div>
-        <ul>
-          <li>减少跨角色重复解释</li>
-          <li>在实现前暴露冲突与缺口</li>
-          <li>任何改动都能追溯到原始意图</li>
-        </ul>
+      <article>
+        <div><small>02 / LATE CONFLICT</small><b>分歧拖到编码后暴露</b><p>范围、边界和异常路径在实现阶段才碰撞。</p></div>
+        <div><small>QUALITY GATE</small><b>SR 与模块设计两道门禁</b><p>证据、方案、验证与待决问题在放行前闭环。</p></div>
+        <div><small>RESULT</small><b>早一步发现问题</b><p>把返工从代码和测试阶段前移到设计阶段。</p></div>
       </article>
-    </div>
-
-    <div class="value-outcomes" aria-label="AAW 带来的三项结果">
-      <article><span>01</span><h3>少一次转述</h3><p>产物自动成为下一阶段的输入，角色切换不再意味着上下文重建。</p></article>
-      <article><span>02</span><h3>早一步发现</h3><p>SR 与模块设计门禁把范围、证据、边界和验证缺口挡在编码之前。</p></article>
-      <article><span>03</span><h3>随时能追溯</h3><p>从代码回看任务、设计与需求，知道改了什么，更知道为什么改。</p></article>
-    </div>
-  </section>
-
-  <section class="start-section" id="start" aria-labelledby="start-title">
-    <div class="section-heading section-heading--compact">
-      <p class="section-index">02 / 工作流的使用方式</p>
-      <h2 id="start-title">不用先学一套方法论。<br><em>输入一条命令，就能开始。</em></h2>
-    </div>
-
-    <div class="terminal-demo" data-terminal-demo data-phase="idle" data-active-entry="sr" data-playing="true" aria-label="AAW 工作流入口交互演示">
-      <div class="terminal-demo__bar">
-        <span class="terminal-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span class="terminal-demo__identity"><i aria-hidden="true">◆</i> AI CODING ASSISTANT</span>
-        <div class="terminal-demo__actions">
-          <button type="button" data-terminal-toggle aria-label="暂停演示"><span aria-hidden="true">Ⅱ</span><b>暂停</b></button>
-          <button type="button" data-terminal-replay aria-label="重新播放演示"><span aria-hidden="true">↻</span><b>重播</b></button>
-        </div>
-      </div>
-
-      <div class="terminal-screen">
-        <div class="terminal-context" aria-hidden="true">
-          <span>WORKSPACE</span>
-          <b>awesome-agent-workflow</b>
-          <small>main · clean</small>
-        </div>
-
-        <div class="terminal-transcript">
-          <div class="terminal-row terminal-row--command">
-            <span class="terminal-prompt" aria-hidden="true">❯</span>
-            <code data-terminal-command></code><span class="terminal-cursor" aria-hidden="true"></span>
-            <button class="copy-command terminal-copy" type="button" data-copy="/aaw-workflow" aria-label="复制 /aaw-workflow 命令">复制命令</button>
-          </div>
-
-          <div class="terminal-detection">
-            <p><span aria-hidden="true">✓</span><b>仓库上下文</b><small>已识别当前代码仓与分支</small></p>
-            <p><span aria-hidden="true">✓</span><b>架构基线</b><small data-terminal-baseline>检查软件架构文档与工程约束</small></p>
-            <p><span aria-hidden="true">✓</span><b>工作流进度</b><small>扫描 .sdd 目录与已有执行记录</small></p>
-          </div>
-
-          <div class="terminal-entry">
-            <p class="terminal-question"><span>?</span> 请选择本次工作的入口</p>
-            <div class="terminal-entry__options" role="group" aria-label="工作流入口">
-              <button type="button" data-terminal-entry="sr" aria-pressed="true">
-                <span>SR</span><b>从原始需求开始</b><small>建立完整的需求与设计链路</small>
-              </button>
-              <button type="button" data-terminal-entry="ar" aria-pressed="false">
-                <span>AR</span><b>从明确变更接入</b><small>基于已有架构基线继续推进</small>
-              </button>
-            </div>
-            <p class="terminal-hint"><kbd>↑</kbd><kbd>↓</kbd> 选择 <kbd>Enter</kbd> 确认</p>
-          </div>
-
-          <div class="terminal-result" aria-live="polite">
-            <span class="terminal-result__icon" aria-hidden="true">→</span>
-            <div>
-              <small data-terminal-result-label>已选择 SR 入口</small>
-              <b data-terminal-result-title>准备执行 sr-init</b>
-              <p data-terminal-result-copy>建立项目与架构上下文，再进入系统需求设计。</p>
-            </div>
-          </div>
-
-          <div class="terminal-progress">
-            <span aria-hidden="true">↻</span>
-            <p><b data-terminal-progress-title>已创建工作流，可随时恢复</b><code>.sdd/&lt;SR&gt;/workflow.yaml</code></p>
-            <i aria-hidden="true"></i>
-          </div>
-        </div>
+      <article>
+        <div><small>03 / LOST RATIONALE</small><b>代码只留下“改了什么”</b><p>实现与最初需求之间缺少可核验的决策链。</p></div>
+        <div><small>WORKFLOW EVIDENCE</small><b>状态、产物与确认持续入库</b><p><code>workflow.yaml</code> 串联每个节点的输入、输出与放行。</p></div>
+        <div><small>RESULT</small><b>随时回答“为什么”</b><p>从代码反向追溯任务、设计、AR 与原始意图。</p></div>
+      </article>
+      <div class="trace-strip" aria-label="AAW 全链路追溯路径">
+        <span>需求描述</span><i>→</i><span>SR 设计</span><i>→</i><span>AR 澄清</span><i>→</i><span>模块详设</span><i>→</i><span>任务卡</span><i>→</i><span>代码与验证</span>
       </div>
     </div>
-
-    <ol class="usage-beats" aria-label="三个使用步骤">
-      <li><span>01</span><b>输入命令</b><small>/aaw-workflow</small></li>
-      <li><span>02</span><b>选择入口</b><small>SR 或 AR</small></li>
-      <li><span>03</span><b>恢复或创建工作流</b><small>上下文自动衔接</small></li>
-    </ol>
   </section>
 
   <section class="collaboration-section" id="collaboration" aria-labelledby="collaboration-title">
     <div class="section-heading collaboration-heading">
-      <p class="section-index">03 / 跨角色协作流程</p>
+      <p class="section-index">02 / 跨角色协作流程</p>
       <h2 id="collaboration-title">不是把文档交给开发，<br><em>是把上下文交给代码仓。</em></h2>
       <p>SE / DE 在 <code>AR-clarify</code> 完成并评审后，将完整 <code>.sdd</code> 上下文合入业务代码仓；开发从同一基线恢复 AAW，继续模块详设、门禁与代码实现。</p>
     </div>
@@ -195,27 +175,68 @@
       <section class="swimlane swimlane--design" aria-labelledby="role-design">
         <header class="swimlane__role">
           <span class="role-avatar role-avatar--design">SE<br>DE</span>
-          <div><small>ROLE 01</small><h3 id="role-design">需求设计侧</h3><p>把需求意图收敛成开发可承接的 AR 基线</p></div>
+          <div><small>ROLE 01 · COLLABORATIVE</small><h3 id="role-design">需求设计侧</h3><p>从原始需求到已确认 AR，形成开发可承接的完整基线</p></div>
         </header>
-        <div class="lane-track lane-track--design">
-          <article class="collab-step">
-            <span>01</span><small>CLARIFY</small>
-            <h4>完成 AR 澄清</h4>
-            <p>明确目标、范围、约束、承接模块与验收边界。</p>
-            <code>AR-clarify.md</code>
-          </article>
-          <article class="collab-step collab-step--human">
-            <span>02</span><small>REVIEW</small>
-            <h4>SE / DE 评审确认</h4>
-            <p>确认没有把歧义、猜测和待决问题继续传给开发。</p>
-            <em>人工确认</em>
-          </article>
-          <article class="collab-step collab-step--merge">
-            <span>03</span><small>MERGE CONTEXT</small>
-            <h4>完整上下文上库</h4>
-            <p>将 AR 澄清、架构基线与工作流进度作为一个交接包。</p>
-            <em>提交并合入</em>
-          </article>
+        <div class="design-chains">
+          <section class="design-chain" aria-label="SR 需求设计链">
+            <header><div><small>CHAIN A · SR</small><b>从原始意图到可拆分的系统需求</b></div><em>门禁失败 / 阻塞 ↩ 返回 SR 设计</em></header>
+            <div class="design-track design-track--sr">
+              <article class="collab-step">
+                <span>01</span><small>CAPTURE</small>
+                <h4>原始需求入库</h4>
+                <p>保留目标、背景、约束与原始表达。</p>
+                <div class="collab-facts"><span><b>OUT</b> original-requirement.md</span><span><b>DONE</b> 原意可核验</span></div>
+              </article>
+              <article class="collab-step collab-step--human">
+                <span>02</span><small>SR-INIT</small>
+                <h4>建立架构上下文</h4>
+                <p>识别仓库结构、边界与工程约束。</p>
+                <div class="collab-facts"><span><b>OUT</b> software_architecture.md</span><span><b>GO</b> 人工确认</span></div>
+              </article>
+              <article class="collab-step">
+                <span>03</span><small>SR-DESIGN</small>
+                <h4>系统需求设计</h4>
+                <p>形成范围、流程、契约与验收闭环。</p>
+                <div class="collab-facts"><span><b>OUT</b> SR-design.md</span><span><b>DONE</b> 可进入审查</span></div>
+              </article>
+              <article class="collab-step collab-step--gate">
+                <span>04</span><small>SR-DESIGN-GATE</small>
+                <h4>SR 设计门禁</h4>
+                <p>审查边界、冲突、风险与可拆分性。</p>
+                <div class="collab-facts"><span><b>OUT</b> 门禁结论 / 报告</span><span><b>GO</b> PASS + 人工放行</span></div>
+              </article>
+              <article class="collab-step collab-step--human">
+                <span>05</span><small>AR-SPLIT</small>
+                <h4>确认 AR 拆分</h4>
+                <p>确定稳定 AR 编号、标题与范围。</p>
+                <div class="collab-facts"><span><b>OUT</b> AR 清单</span><span><b>DONE</b> 拆分决策确认</span></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="design-chain design-chain--handoff" aria-label="AR 澄清与交接链">
+            <header><div><small>CHAIN B · AR HANDOFF</small><b>从单次变更到可信交接包</b></div><em>存在歧义 / 未确认 ↩ 停留在 AR 澄清</em></header>
+            <div class="design-track design-track--ar">
+              <article class="collab-step collab-step--human">
+                <span>06</span><small>AR-CLARIFY</small>
+                <h4>完成 AR 澄清</h4>
+                <p>明确目标、范围、约束、模块与验收边界。</p>
+                <div class="collab-facts"><span><b>OUT</b> AR-clarify.md</span><span><b>GO</b> 无待决歧义</span></div>
+              </article>
+              <article class="collab-step collab-step--human">
+                <span>07</span><small>REVIEW</small>
+                <h4>SE / DE 评审确认</h4>
+                <p>确认不把猜测和待决问题继续传给开发。</p>
+                <div class="collab-facts"><span><b>OWNER</b> SE / DE 协作</span><span><b>DONE</b> 评审通过</span></div>
+              </article>
+              <article class="collab-step collab-step--merge">
+                <span>08</span><small>MERGE CONTEXT</small>
+                <h4>完整上下文上库</h4>
+                <p>将需求、设计、架构与工作流状态合并入仓。</p>
+                <div class="collab-facts"><span><b>OUT</b> 完整 .sdd + workflow.yaml</span><span><b>DONE</b> 合入业务仓</span></div>
+              </article>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -248,30 +269,34 @@
         </header>
         <div class="lane-track lane-track--development">
           <article class="collab-step">
-            <span>04</span><small>RESUME</small>
+            <span>09</span><small>RESUME</small>
             <h4>拉取并恢复 AAW</h4>
             <p>从代码仓读取最新 <code>.sdd</code> 和工作流状态。</p>
+            <div class="collab-facts"><span><b>IN</b> 可信基线</span><span><b>DONE</b> 状态恢复</span></div>
           </article>
           <article class="collab-step">
-            <span>05</span><small>BOUNDARY</small>
+            <span>10</span><small>BOUNDARY</small>
             <h4>模块边界与分组</h4>
             <p>从 <code>module-boundary-design</code> 正式接手。</p>
+            <div class="collab-facts"><span><b>OUT</b> 模块边界</span><span><b>DONE</b> 分组确认</span></div>
           </article>
           <article class="collab-step">
-            <span>06</span><small>DETAIL DESIGN</small>
+            <span>11</span><small>DETAIL DESIGN</small>
             <h4>证据、详设与测试</h4>
             <p>完成 AS-IS、TO-BE 和测试用例设计。</p>
+            <div class="collab-facts"><span><b>OUT</b> 事实 + 方案</span><span><b>DONE</b> 可验证</span></div>
           </article>
           <article class="collab-step collab-step--gate">
-            <span>07</span><small>GATE</small>
+            <span>12</span><small>GATE</small>
             <h4>门禁与任务拆分</h4>
             <p>设计通过质量闸门后，拆成可验收任务。</p>
+            <div class="collab-facts"><span><b>OUT</b> 任务卡</span><span><b>DONE</b> 门禁通过</span></div>
           </article>
           <article class="collab-step collab-step--ship">
-            <span>08</span><small>SHIP</small>
+            <span>13</span><small>SHIP</small>
             <h4>开发代码合入</h4>
             <p>实现、测试、自审、复验完成后回到代码仓。</p>
-            <em>交付闭环</em>
+            <div class="collab-facts"><span><b>OUT</b> 代码 + 证据</span><span><b>DONE</b> 交付闭环</span></div>
           </article>
         </div>
       </section>
@@ -296,7 +321,7 @@
 
   <section class="workflow-section" id="workflow" aria-labelledby="workflow-title">
     <div class="section-heading workflow-heading">
-      <p class="section-index">04 / 工作流的核心流程</p>
+      <p class="section-index">03 / 工作流的核心流程</p>
       <h2 id="workflow-title">一条不断被继承、校验、修正的<br><em>信息闭环。</em></h2>
       <p>点击任意节点，查看它如何接收上游上下文、形成新的确定性，并将成果交给下一环节。</p>
     </div>
@@ -314,7 +339,7 @@
         <div class="return-rail" aria-hidden="true"><span>交付证据回流 · 持续完善长期上下文</span><i></i></div>
 
         <section class="phase-lane phase-lane--sr" aria-labelledby="phase-sr">
-          <header><span>PHASE 01</span><h3 id="phase-sr">需求与 SR</h3><p>把原始意图变成可评审的系统需求设计</p></header>
+          <header><span>PHASE 01</span><h3 id="phase-sr">需求与 SR</h3><p>把原始意图变成可评审的系统需求设计</p><dl class="phase-io"><div><dt>IN</dt><dd>原始需求</dd></div><div><dt>OUT</dt><dd>SR-design.md</dd></div></dl></header>
           <div class="phase-flow">
             <div class="source-node"><small>SOURCE</small><b>原始需求描述</b><span>目标 · 背景 · 约束</span></div>
             <button class="flow-node is-selected" type="button" data-node="sr-init" aria-pressed="true">
@@ -334,7 +359,7 @@
         </section>
 
         <section class="phase-lane phase-lane--ar" aria-labelledby="phase-ar">
-          <header><span>PHASE 02</span><h3 id="phase-ar">AR 与边界</h3><p>确定单次变更的范围、模块责任与设计分组</p></header>
+          <header><span>PHASE 02</span><h3 id="phase-ar">AR 与边界</h3><p>确定单次变更的范围、模块责任与设计分组</p><dl class="phase-io"><div><dt>IN</dt><dd>SR / AR</dd></div><div><dt>OUT</dt><dd>边界 + 分组</dd></div></dl></header>
           <div class="phase-flow">
             <button class="entry-port" type="button" data-node="ar-init" aria-pressed="false"><small>AR 直接入口</small><b>已有架构基线</b><span>汇入 05</span></button>
             <button class="flow-node" type="button" data-node="ar-clarify" aria-pressed="false">
@@ -350,7 +375,7 @@
         </section>
 
         <section class="phase-lane phase-lane--design" aria-labelledby="phase-design">
-          <header><span>PHASE 03</span><h3 id="phase-design">证据与设计</h3><p>每个模块组独立形成事实、方案与验证链</p></header>
+          <header><span>PHASE 03</span><h3 id="phase-design">证据与设计</h3><p>每个模块组独立形成事实、方案与验证链</p><dl class="phase-io"><div><dt>IN</dt><dd>模块边界</dd></div><div><dt>OUT</dt><dd>详设 + 测试</dd></div></dl></header>
           <div class="phase-flow">
             <div class="parallel-badge"><b>× N</b><span>每个模块组</span></div>
             <button class="flow-node" type="button" data-node="module-asis-analysis" aria-pressed="false">
@@ -370,7 +395,7 @@
         </section>
 
         <section class="phase-lane phase-lane--ship" aria-labelledby="phase-ship">
-          <header><span>PHASE 04</span><h3 id="phase-ship">任务与交付</h3><p>把已通过的设计变成可验收的开发单元</p></header>
+          <header><span>PHASE 04</span><h3 id="phase-ship">任务与交付</h3><p>把已通过的设计变成可验收的开发单元</p><dl class="phase-io"><div><dt>IN</dt><dd>门禁通过</dd></div><div><dt>OUT</dt><dd>代码 + 证据</dd></div></dl></header>
           <div class="phase-flow">
             <button class="flow-node flow-node--split" type="button" data-node="task-split" aria-pressed="false">
               <span class="node-id">12</span><small>task-split</small><b>有序任务拆分</b><em class="node-tag node-tag--human">需确认</em>
@@ -398,6 +423,72 @@
         </dl>
         <p class="detail-footnote">每一步的状态与上下游关系都会写入 <code>workflow.yaml</code>，因此流程可中断、可恢复、可审计。</p>
       </aside>
+    </div>
+  </section>
+
+  <section class="assets-section" id="assets" aria-labelledby="assets-title">
+    <div class="section-heading assets-heading">
+      <p class="section-index">04 / 工作流资产如何进入代码仓</p>
+      <h2 id="assets-title">不是散落在对话里，<br><em>而是进入版本基线。</em></h2>
+      <p>AAW 把每一阶段确认过的上下文写入代码仓。下一角色读取的不是转述，而是与代码一起演进、可评审、可追溯的正式资产。</p>
+    </div>
+
+    <div class="repo-assets">
+      <div class="repo-tree-panel" aria-label="AAW 生成的示例代码仓目录">
+        <header>
+          <div><small>EXAMPLE REPOSITORY</small><b>订单履约服务</b></div>
+          <span>AAW 生成后的示例目录</span>
+        </header>
+        <div class="repo-tree" role="tree">
+          <p class="tree-line tree-line--root" role="treeitem"><code>.sdd/</code></p>
+          <p class="tree-line asset-tone--baseline" role="treeitem"><span>├──</span><code>software_architecture.md</code><em>01</em></p>
+          <p class="tree-line asset-tone--baseline" role="treeitem"><span>├──</span><code>spec.md</code></p>
+          <p class="tree-line asset-tone--baseline" role="treeitem"><span>├──</span><code>AICodingGuidelines.md</code></p>
+          <p class="tree-line asset-tone--sr" role="treeitem"><span>└──</span><code>SR-001/</code><em>02</em></p>
+          <p class="tree-line tree-line--d2 asset-tone--sr" role="treeitem"><span>├──</span><code>original-requirement.md</code></p>
+          <p class="tree-line tree-line--d2 asset-tone--sr" role="treeitem"><span>├──</span><code>SR-design.md</code></p>
+          <p class="tree-line tree-line--d2 asset-tone--sr" role="treeitem"><span>├──</span><code>SR-design-gate.md</code></p>
+          <p class="tree-line tree-line--d2 asset-tone--sr" role="treeitem"><span>├──</span><code>workflow.yaml</code></p>
+          <p class="tree-line tree-line--d2 asset-tone--ar" role="treeitem"><span>└──</span><code>AR-001/</code><em>03</em></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-source.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-clarify.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>module-boundary-design.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-001-订单履约-订单模块详细设计说明书.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-001-订单履约-订单模块测试用例设计.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-001-订单履约-订单模块设计门禁结果.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--task" role="treeitem"><span>└──</span><code>订单模块_tasks/</code><em>04</em></p>
+          <p class="tree-line tree-line--d4 asset-tone--task" role="treeitem"><span>├──</span><code>overview.md</code></p>
+          <p class="tree-line tree-line--d4 asset-tone--task" role="treeitem"><span>├──</span><code>T01-领域模型调整.md</code></p>
+          <p class="tree-line tree-line--d4 asset-tone--task" role="treeitem"><span>└──</span><code>T02-履约接口实现.md</code></p>
+        </div>
+      </div>
+
+      <div class="asset-notes" aria-label="目录资产的四个层级">
+        <article class="asset-note asset-tone--baseline">
+          <span>01</span>
+          <div><small>REPOSITORY BASELINE</small><h3>仓库级长期基线</h3><p>架构、规范与 AI 编码约束由所有需求共享，保证每次设计和开发都站在同一事实基础上。</p></div>
+          <code>architecture · spec · guidelines</code>
+        </article>
+        <article class="asset-note asset-tone--sr">
+          <span>02</span>
+          <div><small>SYSTEM REQUIREMENT</small><h3>SR 级需求资产</h3><p>原始需求原文、系统设计、门禁结论与流程状态共同保留，任何人都能回到需求起点核验。</p></div>
+          <code>source → design → gate → state</code>
+        </article>
+        <article class="asset-note asset-tone--ar">
+          <span>03</span>
+          <div><small>CHANGE &amp; MODULE DESIGN</small><h3>AR 与模块设计资产</h3><p>变更边界、模块责任、详细设计、测试设计和门禁证据在同一 AR 目录中连续继承。</p></div>
+          <code>clarify → boundary → detail → test</code>
+        </article>
+        <article class="asset-note asset-tone--task">
+          <span>04</span>
+          <div><small>DEVELOPMENT UNITS</small><h3>开发任务资产</h3><p>通过门禁的设计被拆成可验收任务；开发从代码仓恢复完整上下文，再提交实现与验证证据。</p></div>
+          <code>overview → T01 → T02 → code</code>
+        </article>
+      </div>
+    </div>
+
+    <div class="asset-continuity" aria-label="工作流资产连续性">
+      <span>原始意图</span><i>→</i><span>SR 设计</span><i>→</i><span>AR 澄清</span><i>→</i><span>模块详设</span><i>→</i><span>开发任务</span><i>→</i><b>代码与证据共同入库</b>
     </div>
   </section>
 
