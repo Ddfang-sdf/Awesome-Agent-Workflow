@@ -722,13 +722,14 @@ sequenceDiagram
 sequenceDiagram
     participant A as Agent
     participant C as CLI
-    participant W as workflow.yaml
+    participant W as .sdd/SR-001/
 
     rect rgb(240, 248, 255)
         Note over A,W: 初始化
-        A->>C: aaw start --entry sr --sr SR-001
+        A->>C: aaw start --entry sr --sr SR-001 --requirement-file requirement.md
         C->>W: 创建 .sdd/SR-001/
-        C->>W: 写入 step 1 (sr-init)
+        C->>W: 写入 original-requirement.md
+        C->>W: 写入 workflow.yaml：step 1 (sr-init)
         C-->>A: { ok }
     end
 

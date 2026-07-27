@@ -20,6 +20,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
+DEFAULT_HISTORY_BATCH_SIZE = 20
 TERMINAL_STATUSES = {"paused", "blocked", "complete"}
 TASK_STATUSES = {"pending", "running", "completed", "split", "blocked"}
 OUTCOMES = {"completed", "split", "blocked"}
@@ -50,18 +51,6 @@ def parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
-def parse_budget(value: str) -> int:
-    match = re.fullmatch(r"\s*(\d+)\s*([smh]?)\s*", value.lower())
-    if not match:
-        raise argparse.ArgumentTypeError("预算格式应为整数加 s/m/h，例如 45m、2h")
-    amount = int(match.group(1))
-    if amount <= 0:
-        raise argparse.ArgumentTypeError("预算必须大于 0")
-    unit = match.group(2) or "m"
-    multiplier = {"s": 1, "m": 60, "h": 3600}[unit]
-    return amount * multiplier
-
-
 def parse_priority(value: str) -> int:
     try:
         priority = int(value)
@@ -70,6 +59,16 @@ def parse_priority(value: str) -> int:
     if not 1 <= priority <= 100:
         raise argparse.ArgumentTypeError("优先级必须是 1..100 的整数")
     return priority
+
+
+def parse_history_batch_size(value: str) -> int:
+    try:
+        size = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("历史批次大小必须是 1..100 的整数") from exc
+    if not 1 <= size <= 100:
+        raise argparse.ArgumentTypeError("历史批次大小必须是 1..100 的整数")
+    return size
 
 
 def format_duration(seconds: int) -> str:
@@ -170,16 +169,87 @@ def load_state(root: Path, module: str) -> tuple[Path, dict[str, Any]]:
         raise CliError(f"不支持的 research-state schema：{state.get('schema_version')}")
     if state.get("module") != module:
         raise CliError("研究状态中的模块名与命令参数不一致")
-    state.setdefault(
-        "history",
-        {
-            "mode": "full",
-            "last_scanned_head": None,
-            "last_scanned_at": None,
-            "commit_tasks": {},
-            "scan_error": None,
-        },
-    )
+    session = state.get("session")
+    if not isinstance(session, dict):
+        raise CliError("research-state.session 必须是 object")
+    session.pop("budget_seconds", None)
+    if (
+        state.get("status") == "paused"
+        and session.get("last_stop_reason") == "budget_exhausted"
+    ):
+        session["total_elapsed_seconds"] = int(
+            session.get("total_elapsed_seconds", 0)
+        ) + int(session.get("elapsed_seconds", 0))
+        session["elapsed_seconds"] = 0
+        session["active_started_at"] = now_iso()
+        session["last_stopped_at"] = None
+        session["last_stop_reason"] = None
+        state["status"] = "active"
+    history = state.setdefault("history", {})
+    history.setdefault("mode", "full")
+    history.setdefault("batch_size", DEFAULT_HISTORY_BATCH_SIZE)
+    history.setdefault("last_scanned_head", None)
+    history.setdefault("last_scanned_at", None)
+    history.setdefault("scan_error", None)
+    inventory = history.setdefault("commit_inventory", [])
+    if not isinstance(inventory, list):
+        raise CliError("research-state.history.commit_inventory 必须是数组")
+
+    by_commit = {
+        item.get("commit"): item
+        for item in inventory
+        if isinstance(item, dict) and isinstance(item.get("commit"), str)
+    }
+    legacy_commit_tasks = history.pop("commit_tasks", {})
+    if not isinstance(legacy_commit_tasks, dict):
+        legacy_commit_tasks = {}
+    tasks_by_id = {task["id"]: task for task in state.get("tasks", [])}
+    for commit_hash, task_id in legacy_commit_tasks.items():
+        if commit_hash in by_commit or task_id not in tasks_by_id:
+            continue
+        task = tasks_by_id[task_id]
+        context = task.get("context") or {}
+        item = {
+            "commit": commit_hash,
+            "parents": context.get("git_parents", []),
+            "author_date": context.get("author_date"),
+            "subject": context.get("subject", task.get("title", "")),
+            "changed_files": context.get("changed_files", []),
+            "status": "materialized",
+            "task_id": task_id,
+            "reason": task.get("reason", "history-backfill"),
+        }
+        inventory.append(item)
+        by_commit[commit_hash] = item
+
+    for task in state.get("tasks", []):
+        if task.get("type") != "git-change":
+            continue
+        context = task.get("context") or {}
+        commit_hash = context.get("git_commit")
+        if not isinstance(commit_hash, str) or not commit_hash:
+            continue
+        item = by_commit.get(commit_hash)
+        if item is None:
+            item = {
+                "commit": commit_hash,
+                "parents": context.get("git_parents", []),
+                "author_date": context.get("author_date"),
+                "subject": context.get("subject", task.get("title", "")),
+                "changed_files": context.get("changed_files", []),
+                "status": "materialized",
+                "task_id": task["id"],
+                "reason": task.get("reason", "history-backfill"),
+            }
+            inventory.append(item)
+            by_commit[commit_hash] = item
+        item["task_id"] = task["id"]
+        if task["status"] in {"completed", "split"}:
+            item["status"] = "covered"
+        elif task["status"] == "blocked":
+            item["status"] = "blocked"
+        else:
+            item["status"] = "materialized"
     return path, state
 
 
@@ -218,7 +288,6 @@ def git_history_for_path(root: Path, source_path: str) -> list[dict[str, Any]]:
         [
             "log",
             "--full-history",
-            "--reverse",
             "--date=iso-strict",
             "--name-only",
             f"--format={marker}%H%x1f%P%x1f%aI%x1f%s",
@@ -271,10 +340,6 @@ def stop_session(state: dict[str, Any], reason: str) -> None:
     session["active_started_at"] = None
     session["last_stopped_at"] = now_iso()
     session["last_stop_reason"] = reason
-
-
-def budget_exhausted(state: dict[str, Any]) -> bool:
-    return active_elapsed(state) >= int(state["session"]["budget_seconds"])
 
 
 def next_id(state: dict[str, Any], prefix: str) -> str:
@@ -332,7 +397,7 @@ def scan_history_into_state(
         return {
             "mode": "off",
             "scanned": False,
-            "created_tasks": [],
+            "new_commit_count": 0,
             "message": "Git 历史研究已关闭。",
         }
     head = git_head(root)
@@ -341,14 +406,14 @@ def scan_history_into_state(
         return {
             "mode": history["mode"],
             "scanned": False,
-            "created_tasks": [],
+            "new_commit_count": 0,
             "error": history["scan_error"],
         }
     if not force and history.get("last_scanned_head") == head:
         return {
             "mode": history["mode"],
             "scanned": False,
-            "created_tasks": [],
+            "new_commit_count": 0,
             "head": head,
             "message": "Git HEAD 未变化，无需重复扫描。",
         }
@@ -359,47 +424,42 @@ def scan_history_into_state(
         return {
             "mode": history["mode"],
             "scanned": False,
-            "created_tasks": [],
+            "new_commit_count": 0,
             "head": head,
             "error": history["scan_error"],
         }
-    commit_tasks = history.setdefault("commit_tasks", {})
     initial_backfill = history.get("last_scanned_at") is None
-    definition = load_task_types()["git-change"]
-    created: list[str] = []
+    inventory = history.setdefault("commit_inventory", [])
+    existing = {
+        item["commit"]: item
+        for item in inventory
+        if isinstance(item, dict) and isinstance(item.get("commit"), str)
+    }
+    refreshed_inventory: list[dict[str, Any]] = []
+    new_commits: list[str] = []
     for commit in commits:
         commit_hash = commit["commit"]
-        if commit_hash in commit_tasks:
-            continue
-        short = commit_hash[:10]
-        changed_files = list(commit["changed_files"])
-        task = create_task(
-            state,
-            task_type="git-change",
-            title=f"由提交 {short} 反查当前模块知识",
-            question=(
-                f"提交 {short}（{commit['subject']}）暴露了哪些值得核对的模块知识，"
-                "这些知识在当前 HEAD 中的真实实现、适用边界和例外是什么？"
-            ),
-            priority=55 if initial_backfill else 98,
-            evidence_hints=changed_files or [state["source_path"]],
-            acceptance=list(definition["acceptance"]),
-            expansion_triggers=list(definition["expansion_triggers"]),
-            reason="history-backfill" if initial_backfill else "history-refresh",
-            context={
-                "git_commit": commit_hash,
-                "git_parents": commit["parents"],
+        item = existing.get(commit_hash)
+        if item is None:
+            item = {
+                "commit": commit_hash,
+                "status": "queued",
+                "task_id": None,
+                "reason": (
+                    "history-backfill" if initial_backfill else "history-refresh"
+                ),
+            }
+            new_commits.append(commit_hash)
+        item.update(
+            {
+                "parents": commit["parents"],
                 "author_date": commit["author_date"],
                 "subject": commit["subject"],
-                "changed_files": changed_files,
-                "evidence_policy": (
-                    "提交及历史 diff 只作为调查 hint；claims 必须以当前 HEAD "
-                    "的模块源码为事实来源，测试、配置和说明材料只用于交叉验证。"
-                ),
-            },
+                "changed_files": list(commit["changed_files"]),
+            }
         )
-        commit_tasks[commit_hash] = task["id"]
-        created.append(task["id"])
+        refreshed_inventory.append(item)
+    history["commit_inventory"] = refreshed_inventory
     history["last_scanned_head"] = head
     history["last_scanned_at"] = now_iso()
     history["scan_error"] = None
@@ -409,9 +469,66 @@ def scan_history_into_state(
         "scanned": True,
         "head": head,
         "commit_count": len(commits),
-        "created_tasks": created,
+        "new_commit_count": len(new_commits),
+        "newest_new_commit": new_commits[0] if new_commits else None,
         "initial_backfill": initial_backfill,
     }
+
+
+def history_inventory_counts(state: dict[str, Any]) -> dict[str, int]:
+    counts = {"queued": 0, "materialized": 0, "covered": 0, "blocked": 0}
+    for item in state["history"].get("commit_inventory", []):
+        status = item.get("status", "queued")
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def materialize_history_batch(state: dict[str, Any]) -> list[str]:
+    history = state["history"]
+    if history["mode"] == "off":
+        return []
+    queued = [
+        item
+        for item in history.get("commit_inventory", [])
+        if item.get("status") == "queued"
+    ]
+    if not queued:
+        return []
+    definition = load_task_types()["git-change"]
+    created: list[str] = []
+    for item in queued[: int(history["batch_size"])]:
+        commit_hash = item["commit"]
+        short = commit_hash[:10]
+        changed_files = list(item.get("changed_files") or [])
+        task = create_task(
+            state,
+            task_type="git-change",
+            title=f"由提交 {short} 反查当前模块知识",
+            question=(
+                f"提交 {short}（{item.get('subject', '')}）暴露了哪些值得核对的模块知识，"
+                "这些知识在当前 HEAD 中的真实实现、适用边界和例外是什么？"
+            ),
+            priority=55,
+            evidence_hints=changed_files or [state["source_path"]],
+            acceptance=list(definition["acceptance"]),
+            expansion_triggers=list(definition["expansion_triggers"]),
+            reason=item.get("reason", "history-backfill"),
+            context={
+                "git_commit": commit_hash,
+                "git_parents": item.get("parents", []),
+                "author_date": item.get("author_date"),
+                "subject": item.get("subject", ""),
+                "changed_files": changed_files,
+                "evidence_policy": (
+                    "提交及历史 diff 只作为调查 hint；claims 必须以当前 HEAD "
+                    "的模块源码为事实来源，测试、配置和说明材料只用于交叉验证。"
+                ),
+            },
+        )
+        item["status"] = "materialized"
+        item["task_id"] = task["id"]
+        created.append(task["id"])
+    return created
 
 
 def create_issue(
@@ -515,7 +632,6 @@ def command_init(args: argparse.Namespace) -> dict[str, Any]:
         "completed_at": None,
         "current_task_id": None,
         "session": {
-            "budget_seconds": args.budget,
             "elapsed_seconds": 0,
             "total_elapsed_seconds": 0,
             "active_started_at": started,
@@ -527,9 +643,10 @@ def command_init(args: argparse.Namespace) -> dict[str, Any]:
         "issues": [],
         "history": {
             "mode": args.history_mode,
+            "batch_size": args.history_batch_size,
             "last_scanned_head": None,
             "last_scanned_at": None,
-            "commit_tasks": {},
+            "commit_inventory": [],
             "scan_error": None,
         },
     }
@@ -557,7 +674,6 @@ def command_init(args: argparse.Namespace) -> dict[str, Any]:
         "state_file": relative_posix(path, root),
         "task_count": len(state["tasks"]),
         "history": history_scan,
-        "budget_seconds": args.budget,
         "next_command": build_command("next", module, "--json"),
     }
 
@@ -583,14 +699,69 @@ def select_pending_task(state: dict[str, Any]) -> dict[str, Any] | None:
     pending = [task for task in state["tasks"] if task["status"] == "pending"]
     if not pending:
         return None
-    return sorted(
-        pending,
-        key=lambda item: (
-            -int(item["priority"]),
-            0 if item["type"] == "user-question" else 1,
-            item["id"],
-        ),
-    )[0]
+    user_questions = [task for task in pending if task["type"] == "user-question"]
+    if user_questions:
+        return sorted(
+            user_questions,
+            key=lambda item: (-int(item["priority"]), item["id"]),
+        )[0]
+    knowledge = [
+        task
+        for task in pending
+        if task["type"] not in {"user-question", "git-change", "recheck"}
+    ]
+    if knowledge:
+        return sorted(
+            knowledge,
+            key=lambda item: (-int(item["priority"]), item["id"]),
+        )[0]
+    git_tasks = [task for task in pending if task["type"] == "git-change"]
+    if git_tasks:
+        inventory_order = {
+            item.get("task_id"): index
+            for index, item in enumerate(
+                state["history"].get("commit_inventory", [])
+            )
+            if item.get("task_id")
+        }
+        return sorted(
+            git_tasks,
+            key=lambda item: (inventory_order.get(item["id"], sys.maxsize), item["id"]),
+        )[0]
+    rechecks = [task for task in pending if task["type"] == "recheck"]
+    if rechecks:
+        return sorted(rechecks, key=lambda item: item["id"])[0]
+    return None
+
+
+def current_lane(state: dict[str, Any]) -> str:
+    running = current_task(state)
+    if running:
+        if running["type"] == "user-question":
+            return "user-question"
+        if running["type"] == "git-change":
+            return "history"
+        if running["type"] == "recheck":
+            return "recheck"
+        return "knowledge"
+    pending = [task for task in state["tasks"] if task["status"] == "pending"]
+    if any(task["type"] == "user-question" for task in pending):
+        return "user-question"
+    if any(
+        task["type"] not in {"user-question", "git-change", "recheck"}
+        for task in pending
+    ):
+        return "knowledge"
+    if any(task["type"] == "git-change" for task in pending) or any(
+        item.get("status") == "queued"
+        for item in state["history"].get("commit_inventory", [])
+    ):
+        return "history"
+    if any(task["status"] == "blocked" for task in state["tasks"]):
+        return "blocked"
+    if any(task["type"] == "recheck" for task in pending):
+        return "recheck"
+    return "recheck-ready"
 
 
 def file_sha256(path: Path) -> str:
@@ -763,8 +934,8 @@ def render_prompt(state: dict[str, Any], task: dict[str, Any], root: Path) -> st
         "{{OPEN_ISSUES}}": open_issues_context(state),
         "{{RESULT_PATH}}": relative_posix(result_path, root),
         "{{RESULT_EXAMPLE}}": json.dumps(example, ensure_ascii=False, indent=2),
-        "{{DONE_COMMAND}}": build_command(
-            "done",
+        "{{SUBMIT_COMMAND}}": build_command(
+            "submit",
             state["module"],
             "--task",
             task["id"],
@@ -782,6 +953,11 @@ def next_payload(state: dict[str, Any], task: dict[str, Any], root: Path) -> dic
     result = finding_path(root, state["module"], task["id"])
     return {
         "status": "task",
+        "continuation_required": True,
+        "message": (
+            "整体研究尚未完成。立即执行本响应中的唯一任务；"
+            "提交后继续处理 CLI 在同一响应中返回的下一任务。"
+        ),
         "phase": state["phase"],
         "module": state["module"],
         "task": {
@@ -797,8 +973,8 @@ def next_payload(state: dict[str, Any], task: dict[str, Any], root: Path) -> dic
         "prompt": render_prompt(state, task, root),
         "result_file": relative_posix(result, root),
         "commands": {
-            "done": build_command(
-                "done",
+            "submit": build_command(
+                "submit",
                 state["module"],
                 "--task",
                 task["id"],
@@ -812,48 +988,86 @@ def next_payload(state: dict[str, Any], task: dict[str, Any], root: Path) -> dic
     }
 
 
-def command_next(args: argparse.Namespace) -> dict[str, Any]:
-    root = repo_root()
-    module = validate_module_name(args.module)
-    path, state = load_state(root, module)
-    if state["status"] == "complete":
-        return {"status": "complete", "module": module, "message": "模块研究已经完成。"}
-    if state["status"] == "active":
-        scan_result = scan_history_into_state(root, state)
-        if scan_result.get("scanned") or scan_result.get("error"):
-            state["updated_at"] = now_iso()
-            atomic_write_json(path, state)
+def stop_payload(
+    state: dict[str, Any],
+    *,
+    message: str,
+    reason: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "status": state["status"],
+        "continuation_required": False,
+        "stop_reason": reason,
+        "module": state["module"],
+        "phase": state["phase"],
+        "message": message,
+    }
     if state["status"] == "paused":
-        return {
-            "status": "paused",
-            "module": module,
-            "message": "研究已暂停；先执行 resume 开始新的运行时段。",
-            "resume_command": build_command("resume", module, "--json"),
-        }
+        payload["resume_command"] = build_command(
+            "resume", state["module"], "--json"
+        )
+    elif state["status"] == "blocked":
+        payload["tasks"] = [
+            task["id"] for task in state["tasks"] if task["status"] == "blocked"
+        ]
+        payload["issues"] = [
+            item for item in state["issues"] if item["status"] == "open"
+        ]
+    return payload
+
+
+def create_recheck_task(state: dict[str, Any]) -> dict[str, Any]:
+    definition = load_task_types()["recheck"]
+    task = create_task(
+        state,
+        task_type="recheck",
+        title=definition["title"],
+        question=definition["question"],
+        priority=100,
+        evidence_hints=[state["asset_root"], state["source_path"]],
+        acceptance=list(definition["acceptance"]),
+        expansion_triggers=list(definition["expansion_triggers"]),
+        reason="recheck",
+    )
+    state["phase"] = "recheck"
+    return task
+
+
+def lease_next_or_stop(
+    root: Path,
+    state: dict[str, Any],
+    path: Path,
+) -> dict[str, Any]:
+    if state["status"] == "complete":
+        state["updated_at"] = now_iso()
+        atomic_write_json(path, state)
+        return stop_payload(
+            state,
+            message="模块研究已经完成。",
+            reason="complete",
+        )
+    if state["status"] == "paused":
+        state["updated_at"] = now_iso()
+        atomic_write_json(path, state)
+        return stop_payload(
+            state,
+            message="研究已由用户主动暂停；执行 resume 后继续。",
+            reason="manual_pause",
+        )
     if state["status"] == "blocked":
-        return {
-            "status": "blocked",
-            "module": module,
-            "message": "研究只剩阻塞任务；补充外部材料后执行 resume --reopen-blocked。",
-            "issues": [item for item in state["issues"] if item["status"] == "open"],
-        }
+        state["updated_at"] = now_iso()
+        atomic_write_json(path, state)
+        return stop_payload(
+            state,
+            message="研究只剩外部阻塞任务；补充材料后执行 resume --reopen-blocked。",
+            reason="blocked",
+        )
 
     running = current_task(state)
     if running:
-        return next_payload(state, running, root)
-
-    if budget_exhausted(state):
-        stop_session(state, "budget_exhausted")
-        state["status"] = "paused"
         state["updated_at"] = now_iso()
         atomic_write_json(path, state)
-        return {
-            "status": "paused",
-            "module": module,
-            "reason": "budget_exhausted",
-            "elapsed_seconds": state["session"]["elapsed_seconds"],
-            "resume_command": build_command("resume", module, "--json"),
-        }
+        return next_payload(state, running, root)
 
     task = select_pending_task(state)
     if task is None:
@@ -863,26 +1077,53 @@ def command_next(args: argparse.Namespace) -> dict[str, Any]:
             state["status"] = "blocked"
             state["updated_at"] = now_iso()
             atomic_write_json(path, state)
-            return {
-                "status": "blocked",
-                "module": module,
-                "tasks": [item["id"] for item in blocked],
-                "issues": [item for item in state["issues"] if item["status"] == "open"],
-            }
-        return {
-            "status": "needs_recheck",
-            "module": module,
-            "message": "普通研究任务已清空；执行 recheck 创建独立审查任务。",
-            "recheck_command": build_command("recheck", module, "--json"),
-        }
+            return stop_payload(
+                state,
+                message="研究只剩外部阻塞任务；补充材料后执行 resume --reopen-blocked。",
+                reason="blocked",
+            )
+        materialize_history_batch(state)
+        task = select_pending_task(state)
+    if task is None:
+        task = create_recheck_task(state)
 
     task["status"] = "running"
     task["started_at"] = now_iso()
-    task["asset_snapshot"] = snapshot_stable_assets(root, module)
+    task["asset_snapshot"] = snapshot_stable_assets(root, state["module"])
     state["current_task_id"] = task["id"]
     state["updated_at"] = now_iso()
     atomic_write_json(path, state)
     return next_payload(state, task, root)
+
+
+def command_next(args: argparse.Namespace) -> dict[str, Any]:
+    root = repo_root()
+    module = validate_module_name(args.module)
+    path, state = load_state(root, module)
+    if state["status"] == "complete":
+        return stop_payload(
+            state,
+            message="模块研究已经完成。",
+            reason="complete",
+        )
+    if state["status"] == "active":
+        scan_result = scan_history_into_state(root, state)
+        if scan_result.get("scanned") or scan_result.get("error"):
+            state["updated_at"] = now_iso()
+            atomic_write_json(path, state)
+    if state["status"] == "paused":
+        return stop_payload(
+            state,
+            message="研究已由用户主动暂停；执行 resume 后继续。",
+            reason="manual_pause",
+        )
+    if state["status"] == "blocked":
+        return stop_payload(
+            state,
+            message="研究只剩外部阻塞任务；补充材料后执行 resume --reopen-blocked。",
+            reason="blocked",
+        )
+    return lease_next_or_stop(root, state, path)
 
 
 def require_text(data: dict[str, Any], field: str, label: str) -> str:
@@ -1293,7 +1534,25 @@ def validate_new_tasks(
     return normalized
 
 
-def command_done(args: argparse.Namespace) -> dict[str, Any]:
+def continue_after_submission(
+    root: Path,
+    state: dict[str, Any],
+    path: Path,
+    submission: dict[str, Any],
+) -> dict[str, Any]:
+    if state["status"] == "active":
+        scan_history_into_state(root, state)
+    payload = lease_next_or_stop(root, state, path)
+    payload["submission"] = submission
+    if payload.get("continuation_required"):
+        payload["message"] = (
+            f"任务 {submission['task_id']} 已验收，但整体研究尚未完成。"
+            "不要停下来或向用户交付；立即执行本响应中的下一任务。"
+        )
+    return payload
+
+
+def command_submit(args: argparse.Namespace) -> dict[str, Any]:
     root = repo_root()
     module = validate_module_name(args.module)
     path, state = load_state(root, module)
@@ -1305,23 +1564,21 @@ def command_done(args: argparse.Namespace) -> dict[str, Any]:
         raise CliError(f"当前 running 任务不是 {args.task}")
     if task["type"] == "recheck":
         history_scan = scan_history_into_state(root, state)
-        if history_scan.get("created_tasks"):
+        if history_scan.get("new_commit_count"):
             task["status"] = "split"
             task["summary"] = "审查期间发现新的模块提交，返回研究阶段刷新认知。"
             task["ended_at"] = now_iso()
             state["current_task_id"] = None
             state["phase"] = "research"
             state["status"] = "active"
-            state["updated_at"] = now_iso()
-            atomic_write_json(path, state)
-            return {
-                "status": "active",
-                "phase": "research",
+            submission = {
                 "task_id": task["id"],
                 "task_outcome": "superseded_by_new_commits",
-                "created_tasks": history_scan["created_tasks"],
-                "next_command": build_command("next", module, "--json"),
+                "new_commit_count": history_scan["new_commit_count"],
             }
+            return continue_after_submission(
+                root, state, path, submission
+            )
 
     expected = finding_path(root, module, task["id"])
     result_arg = Path(args.result)
@@ -1404,6 +1661,14 @@ def command_done(args: argparse.Namespace) -> dict[str, Any]:
     task["finding_file"] = relative_posix(expected, root)
     task["updated_assets"] = updated_assets
     state["current_task_id"] = None
+    if task["type"] == "git-change":
+        commit_hash = (task.get("context") or {}).get("git_commit")
+        for item in state["history"].get("commit_inventory", []):
+            if item.get("commit") != commit_hash:
+                continue
+            item["status"] = "blocked" if outcome == "blocked" else "covered"
+            item["task_id"] = task["id"]
+            break
 
     if is_recheck:
         if new_tasks:
@@ -1421,23 +1686,17 @@ def command_done(args: argparse.Namespace) -> dict[str, Any]:
             state["completed_at"] = now_iso()
     elif was_paused:
         state["status"] = "paused"
-    elif budget_exhausted(state):
-        stop_session(state, "budget_exhausted")
-        state["status"] = "paused"
     else:
         state["status"] = "active"
 
-    state["updated_at"] = now_iso()
-    atomic_write_json(path, state)
-    return {
-        "status": state["status"],
+    submission = {
         "phase": state["phase"],
         "task_id": task["id"],
         "task_outcome": outcome,
         "created_tasks": [item["id"] for item in state["tasks"] if item.get("parent_id") == task["id"]],
         "created_issues": [item["id"] for item in created_issues],
-        "next_command": None if state["status"] == "complete" else build_command("next", module, "--json"),
     }
+    return continue_after_submission(root, state, path, submission)
 
 
 def status_payload(state: dict[str, Any]) -> dict[str, Any]:
@@ -1447,6 +1706,7 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
     session = state["session"]
     elapsed = active_elapsed(state)
     cumulative = int(session.get("total_elapsed_seconds", 0)) + elapsed
+    inventory_counts = history_inventory_counts(state)
     return {
         "status": state["status"],
         "phase": state["phase"],
@@ -1454,6 +1714,7 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
         "source_path": state["source_path"],
         "baseline_commit": state["baseline_commit"],
         "current_task_id": state["current_task_id"],
+        "current_lane": current_lane(state),
         "tasks": counts,
         "open_issues": [item for item in state["issues"] if item["status"] == "open"],
         "history": {
@@ -1461,16 +1722,20 @@ def status_payload(state: dict[str, Any]) -> dict[str, Any]:
             "last_scanned_head": state["history"].get("last_scanned_head"),
             "last_scanned_at": state["history"].get("last_scanned_at"),
             "commit_count": state["history"].get("commit_count", 0),
-            "tracked_commits": len(state["history"].get("commit_tasks", {})),
+            "batch_size": state["history"].get(
+                "batch_size", DEFAULT_HISTORY_BATCH_SIZE
+            ),
+            "queued_commits": inventory_counts["queued"],
+            "materialized_commits": inventory_counts["materialized"],
+            "covered_commits": inventory_counts["covered"],
+            "blocked_commits": inventory_counts["blocked"],
             "scan_error": state["history"].get("scan_error"),
         },
         "session": {
-            "budget_seconds": session["budget_seconds"],
             "elapsed_seconds": elapsed,
             "elapsed": format_duration(elapsed),
             "cumulative_elapsed_seconds": cumulative,
             "cumulative_elapsed": format_duration(cumulative),
-            "remaining_seconds": max(0, int(session["budget_seconds"]) - elapsed),
             "active": bool(session.get("active_started_at")),
         },
     }
@@ -1509,7 +1774,7 @@ def command_history_sync(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def begin_new_session(state: dict[str, Any], budget: int | None = None) -> None:
+def begin_new_session(state: dict[str, Any]) -> None:
     session = state["session"]
     session["total_elapsed_seconds"] = int(
         session.get("total_elapsed_seconds", 0)
@@ -1518,8 +1783,6 @@ def begin_new_session(state: dict[str, Any], budget: int | None = None) -> None:
     session["active_started_at"] = now_iso()
     session["last_stopped_at"] = None
     session["last_stop_reason"] = None
-    if budget is not None:
-        session["budget_seconds"] = budget
 
 
 def normalized_question(value: str) -> str:
@@ -1548,7 +1811,7 @@ def command_add_question(args: argparse.Namespace) -> dict[str, Any]:
     if existing:
         reopened = state["status"] != "active"
         if reopened:
-            begin_new_session(state, args.budget)
+            begin_new_session(state)
             state["status"] = "active"
             state["phase"] = "research"
             state["completed_at"] = None
@@ -1604,9 +1867,7 @@ def command_add_question(args: argparse.Namespace) -> dict[str, Any]:
 
     was_inactive = state["status"] != "active"
     if was_inactive:
-        begin_new_session(state, args.budget)
-    elif args.budget is not None:
-        state["session"]["budget_seconds"] = args.budget
+        begin_new_session(state)
     state["status"] = "active"
     state["phase"] = "research"
     state["completed_at"] = None
@@ -1668,24 +1929,24 @@ def command_resume(args: argparse.Namespace) -> dict[str, Any]:
                 task["status"] = "pending"
                 task["started_at"] = None
                 task["ended_at"] = None
+                if task["type"] == "git-change":
+                    commit_hash = (task.get("context") or {}).get("git_commit")
+                    for item in state["history"].get("commit_inventory", []):
+                        if item.get("commit") == commit_hash:
+                            item["status"] = "materialized"
+                            item["task_id"] = task["id"]
+                            break
         for issue in state["issues"]:
             if issue["status"] == "open":
                 issue["status"] = "reopened"
                 issue["resolved_at"] = now_iso()
     state["status"] = "active"
-    state["session"]["budget_seconds"] = args.budget or state["session"]["budget_seconds"]
-    state["session"]["total_elapsed_seconds"] = int(
-        state["session"].get("total_elapsed_seconds", 0)
-    ) + int(state["session"].get("elapsed_seconds", 0))
-    state["session"]["elapsed_seconds"] = 0
-    state["session"]["active_started_at"] = now_iso()
-    state["session"]["last_stop_reason"] = None
+    begin_new_session(state)
     state["updated_at"] = now_iso()
     atomic_write_json(path, state)
     return {
         "status": "active",
         "module": module,
-        "budget_seconds": state["session"]["budget_seconds"],
         "next_command": build_command("next", module, "--json"),
     }
 
@@ -1708,22 +1969,16 @@ def command_recheck(args: argparse.Namespace) -> dict[str, Any]:
     blocked = [task for task in state["tasks"] if task["status"] == "blocked"]
     if blocked:
         raise CliError("仍有 blocked 任务，不能进入 recheck")
+    history_counts = history_inventory_counts(state)
+    if any(
+        history_counts[status] > 0
+        for status in ("queued", "materialized", "blocked")
+    ):
+        raise CliError("Git 历史清单仍有未覆盖提交；先执行 next 继续历史反查")
     if any(task["type"] == "recheck" and task["status"] in {"pending", "running"} for task in state["tasks"]):
         raise CliError("已经存在未完成的 recheck 任务")
 
-    definition = load_task_types()["recheck"]
-    task = create_task(
-        state,
-        task_type="recheck",
-        title=definition["title"],
-        question=definition["question"],
-        priority=100,
-        evidence_hints=[state["asset_root"], state["source_path"]],
-        acceptance=list(definition["acceptance"]),
-        expansion_triggers=list(definition["expansion_triggers"]),
-        reason="recheck",
-    )
-    state["phase"] = "recheck"
+    task = create_recheck_task(state)
     state["updated_at"] = now_iso()
     atomic_write_json(path, state)
     return {
@@ -1741,19 +1996,24 @@ def add_common_flags(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="deep-research",
-        description="独立的模块深度研究任务与时长协调 CLI。",
+        description="独立的模块深度研究任务循环协调 CLI。",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init = subparsers.add_parser("init", help="初始化模块研究")
     init.add_argument("--module", required=True)
     init.add_argument("--path", required=True, help="模块源码路径，相对仓库根目录")
-    init.add_argument("--budget", type=parse_budget, default=parse_budget("45m"))
     init.add_argument(
         "--history-mode",
         choices=sorted(HISTORY_MODES),
         default="full",
         help="full：回溯全部模块提交并持续刷新；off：关闭 Git 历史任务",
+    )
+    init.add_argument(
+        "--history-batch-size",
+        type=parse_history_batch_size,
+        default=DEFAULT_HISTORY_BATCH_SIZE,
+        help="认知任务收敛后，每次最多实例化的 Git 历史任务数（默认 20）",
     )
     add_common_flags(init)
     init.set_defaults(handler=command_init)
@@ -1763,12 +2023,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_flags(next_parser)
     next_parser.set_defaults(handler=command_next)
 
-    done = subparsers.add_parser("done", help="提交当前任务结果")
-    done.add_argument("--module", required=True)
-    done.add_argument("--task", required=True)
-    done.add_argument("--result", required=True)
-    add_common_flags(done)
-    done.set_defaults(handler=command_done)
+    submit = subparsers.add_parser(
+        "submit",
+        help="提交当前任务结果并立即续领下一任务",
+    )
+    submit.add_argument("--module", required=True)
+    submit.add_argument("--task", required=True)
+    submit.add_argument("--result", required=True)
+    add_common_flags(submit)
+    submit.set_defaults(handler=command_submit)
 
     status = subparsers.add_parser("status", help="查看研究状态")
     status.add_argument("--module", required=True)
@@ -1777,7 +2040,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     history_sync = subparsers.add_parser(
         "history-sync",
-        help="扫描模块 Git 提交并补充历史反查任务",
+        help="扫描模块 Git 提交并刷新历史清单",
     )
     history_sync.add_argument("--module", required=True)
     history_sync.add_argument("--force", action="store_true")
@@ -1797,11 +2060,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help="建议优先取证位置，可重复提供",
     )
-    add_question.add_argument(
-        "--budget",
-        type=parse_budget,
-        help="重新打开非 active 研究时的新运行预算",
-    )
     add_common_flags(add_question)
     add_question.set_defaults(handler=command_add_question)
 
@@ -1813,7 +2071,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     resume = subparsers.add_parser("resume", help="恢复研究并开启新的运行时段")
     resume.add_argument("--module", required=True)
-    resume.add_argument("--budget", type=parse_budget)
     resume.add_argument("--reopen-blocked", action="store_true")
     add_common_flags(resume)
     resume.set_defaults(handler=command_resume)

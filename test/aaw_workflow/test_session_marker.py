@@ -68,7 +68,7 @@ class SessionMarkerCliTests(CliTestBase):
 
     def test_start_writes_marker(self) -> None:
         """aaw start 后标记指向该 SR"""
-        self.run_cli("start", "--entry", "sr", "--sr", "SR-001", "--json")
+        self.start_sr("SR-001")
 
         self.assertEqual("./.sdd/SR-001/", self._read_marker())
 
@@ -84,7 +84,7 @@ class SessionMarkerCliTests(CliTestBase):
 
     def test_next_writes_marker(self) -> None:
         """aaw next 后标记指向该 SR（覆盖 start 之后的每次循环）"""
-        self.run_cli("start", "--entry", "sr", "--sr", "SR-001", "--json")
+        self.start_sr("SR-001")
         (self.cwd / MARKER_REL).unlink(missing_ok=True)  # 删掉标记，验证 next 会重建
 
         self.run_cli("next", "--sr", "SR-001", "--json")
@@ -93,8 +93,8 @@ class SessionMarkerCliTests(CliTestBase):
 
     def test_next_switches_marker_to_latest_sr(self) -> None:
         """多 SR 交错时，标记跟随最近一次 next 的 SR"""
-        self.run_cli("start", "--entry", "sr", "--sr", "SR-A", "--json")
-        self.run_cli("start", "--entry", "sr", "--sr", "SR-B", "--json")
+        self.start_sr("SR-A")
+        self.start_sr("SR-B")
 
         self.run_cli("next", "--sr", "SR-A", "--json")
 
@@ -102,7 +102,7 @@ class SessionMarkerCliTests(CliTestBase):
 
     def test_failed_next_does_not_touch_marker(self) -> None:
         """next 的 SR 不存在（load 失败）时不得写入或破坏已有标记"""
-        self.run_cli("start", "--entry", "sr", "--sr", "SR-OK", "--json")
+        self.start_sr("SR-OK")
         before = self._read_marker()
 
         self.run_cli("next", "--sr", "SR-MISSING", "--json", expect=1)
@@ -111,7 +111,7 @@ class SessionMarkerCliTests(CliTestBase):
 
     def test_status_does_not_write_marker(self) -> None:
         """status 是只读巡检命令，不写标记"""
-        self.run_cli("start", "--entry", "sr", "--sr", "SR-001", "--json")
+        self.start_sr("SR-001")
         (self.cwd / MARKER_REL).unlink(missing_ok=True)
 
         self.run_cli("status", "--sr", "SR-001", "--json")
@@ -120,7 +120,7 @@ class SessionMarkerCliTests(CliTestBase):
 
     def test_done_does_not_write_marker(self) -> None:
         """done 命令本身不写标记（前置的 next 会写，因此先删再单独调 done）"""
-        self.run_cli("start", "--entry", "sr", "--sr", "SR-001", "--json")
+        self.start_sr("SR-001")
         self.run_cli("next", "--sr", "SR-001", "--json")  # 让 step 1 进入 started
         (self.cwd / ".sdd" / "software_architecture.md").write_text("architecture", "utf-8")
         (self.cwd / MARKER_REL).unlink(missing_ok=True)
@@ -131,7 +131,7 @@ class SessionMarkerCliTests(CliTestBase):
 
     def test_rollback_does_not_write_marker(self) -> None:
         """rollback 不写标记（与 done/status 同类，非子技能前置命令）"""
-        self.run_cli("start", "--entry", "sr", "--sr", "SR-001", "--json")
+        self.start_sr("SR-001")
         (self.cwd / MARKER_REL).unlink(missing_ok=True)
 
         self.run_cli("rollback", "--sr", "SR-001", "1", "--json")
@@ -140,7 +140,7 @@ class SessionMarkerCliTests(CliTestBase):
 
     def test_repeated_next_is_idempotent(self) -> None:
         """同一 SR 连续多次 next，标记内容稳定不损坏"""
-        self.run_cli("start", "--entry", "sr", "--sr", "SR-001", "--json")
+        self.start_sr("SR-001")
 
         self.run_cli("next", "--sr", "SR-001", "--json")
         first = self._read_marker()

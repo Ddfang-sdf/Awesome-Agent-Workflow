@@ -139,6 +139,37 @@ class NextCliTests(CliTestBase):
         self.assertIn("可局部修改或整体重写并写回原路径", result.stdout)
         self.assertNotIn("可直接执行 done", result.stdout)
 
+    def _sr_design_order(self, sr: str) -> dict:
+        payload = json.loads(self.run_cli("next", "--sr", sr, "--json").stdout)
+        for order in payload["ready"]:
+            if order["type"] == "sr-design":
+                return order
+        self.fail(f"no sr-design work order in ready: {payload['ready']!r}")
+
+    def test_sr_design_work_order_requires_original_requirement(self) -> None:
+        self.start_sr("SR-DESIGN")
+        self.complete_step_1("SR-DESIGN")
+
+        order = self._sr_design_order("SR-DESIGN")
+
+        req_path = ".sdd/SR-DESIGN/original-requirement.md"
+        self.assertIn(req_path, order["inputs"]["required"])
+        self.assertTrue(order["inputs"]["all_required_exist"])
+
+    def test_sr_design_blocked_when_requirement_deleted(self) -> None:
+        self.start_sr("SR-DESIGN2")
+        self.complete_step_1("SR-DESIGN2")
+        req_path = ".sdd/SR-DESIGN2/original-requirement.md"
+        (self.cwd / ".sdd" / "SR-DESIGN2" / "original-requirement.md").unlink()
+
+        order = self._sr_design_order("SR-DESIGN2")
+
+        self.assertTrue(order["inputs"]["blocked"])
+        self.assertIn(req_path, order["inputs"]["missing_required"])
+
+        result = self.run_cli("done", "--sr", "SR-DESIGN2", str(order["id"]), expect=1)
+        self.assertIn("required input", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

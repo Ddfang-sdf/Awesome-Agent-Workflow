@@ -4,6 +4,8 @@ skill: [sr-design-gate]
 input:
   - path: ".sdd/software_architecture.md"
     required: true
+  - path: ".sdd/{SR}/original-requirement.md"
+    required: true
   - path: ".sdd/{SR}/SR-design.md"
     required: true
 output:

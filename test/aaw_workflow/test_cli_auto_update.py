@@ -184,7 +184,9 @@ class AutoUpdateTests(unittest.TestCase):
         self.run_cli("status", "--json")
         baseline = _CountingHandler.release_queries
 
-        self.run_cli("start", "--sr", "SR100", "--json")
+        req = self.project / ".req.md"
+        req.write_text("需求内容", "utf-8")
+        self.run_cli("start", "--sr", "SR100", "--requirement-file", str(req), "--json")
         self.run_cli("next", "--sr", "SR100", "--json")
 
         self.assertEqual(baseline, _CountingHandler.release_queries)
@@ -219,7 +221,9 @@ class AutoUpdateTests(unittest.TestCase):
     # -- successful auto-update + re-exec ---------------------------------
 
     def test_status_auto_updates_and_reexecs_original_argv(self) -> None:
-        self.run_cli("start", "--sr", "SR100", "--json")  # some existing state
+        req = self.project / ".req.md"
+        req.write_text("需求内容", "utf-8")
+        self.run_cli("start", "--sr", "SR100", "--requirement-file", str(req), "--json")  # some existing state
         _CountingHandler.releases = {NEW_VERSION: _zip_install(self.install, NEW_VERSION)}
 
         result = self.run_cli("status", "--json")

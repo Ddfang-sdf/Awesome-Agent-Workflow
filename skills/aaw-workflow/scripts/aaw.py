@@ -14,8 +14,12 @@ package.  The locked descriptor is then adopted by ``cli.install_lock``.
 
 import json
 import os
+import subprocess
 import time
 import sys
+import threading
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 
@@ -24,6 +28,52 @@ from pathlib import Path
 _LOCK_NAME = ".aaw-update.lock"
 _LOCK_TIMEOUT = 30.0
 _LOCK_RETRY_INTERVAL = 0.15
+_INVOCATION_ID = os.environ.setdefault("AAW_INVOCATION_ID", str(uuid.uuid4()))
+
+
+def _early_failure_log(message: str) -> None:
+    """Best-effort fallback for failures before the managed CLI can import."""
+    if os.environ.get("AAW_LOGGING", "on").strip().lower() in {
+        "0", "false", "no", "off", "disabled",
+    }:
+        return
+    try:
+        now = datetime.now().astimezone()
+        offset = now.strftime("%z")
+        offset = f"{offset[:3]}:{offset[3:]}" if offset else "+00:00"
+        stamp = now.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + f" {offset}"
+        root = Path.cwd()
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                root = Path(result.stdout.strip())
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        logs = root / ".aaw" / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        line = (
+            f"{stamp} ERROR [pid={os.getpid()} thread={threading.current_thread().name} "
+            f"workflow=- sr=- ar=- invocation={_INVOCATION_ID} seq=1] "
+            f"aaw.launcher - {message}\n"
+        )
+        payload = line.encode("utf-8", "replace")
+        fd = os.open(logs / "system.log", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            os.write(fd, payload)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except Exception:
+        pass
 
 
 def _wants_update_json(argv: list[str]) -> bool:
@@ -39,6 +89,7 @@ def _wants_update_json(argv: list[str]) -> bool:
 
 
 def _die(message: str, *, status: str = "failed", code: int = 1) -> None:
+    _early_failure_log(message)
     if _wants_update_json(sys.argv[1:]):
         print(json.dumps({"status": status, "error": message}, ensure_ascii=False))
     print(f"aaw: {message}", file=sys.stderr)
@@ -122,10 +173,22 @@ from cli.install_lock import InstallLock, set_active_lock  # noqa: E402
 _lock = InstallLock.adopt(_skills_root, _locked_fd, mode="shared")
 set_active_lock(_lock)
 
+from cli import runtime_logging  # noqa: E402
+
+runtime_logging.initialize(sys.argv[1:])
+
 from cli import bootstrap  # noqa: E402
 
-bootstrap.startup(__file__, _lock)
+try:
+    bootstrap.startup(__file__, _lock)
 
-import cli.main  # noqa: E402
+    import cli.main  # noqa: E402
 
-cli.main.app()
+    cli.main.app()
+except BaseException as exc:
+    runtime_logging.log_exception(exc)
+    code = exc.code if isinstance(exc, SystemExit) else 130 if isinstance(exc, KeyboardInterrupt) else 1
+    runtime_logging.finish(code)
+    raise
+else:
+    runtime_logging.finish(0)

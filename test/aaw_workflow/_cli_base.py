@@ -92,8 +92,15 @@ class CliTestBase(unittest.TestCase):
         )
         return result
 
-    def start_sr(self, sr: str) -> dict:
-        result = self.run_cli("start", "--entry", "sr", "--sr", sr, "--json")
+    DEFAULT_REQUIREMENT = "原始需求：示例系统需要支持用户管理。\n"
+
+    def start_sr(self, sr: str, requirement: str | None = None) -> dict:
+        req_file = self.cwd / f".aaw-test-requirement-{sr}.md"
+        req_file.write_text(requirement or self.DEFAULT_REQUIREMENT, "utf-8")
+        result = self.run_cli(
+            "start", "--entry", "sr", "--sr", sr,
+            "--requirement-file", str(req_file), "--json",
+        )
         return json.loads(result.stdout)
 
     def user_confirm(self, sr: str) -> dict:

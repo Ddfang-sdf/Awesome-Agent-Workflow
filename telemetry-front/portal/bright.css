@@ -1013,6 +1013,8 @@ body > main.stage { z-index: 0; }
   .stones { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
+  .portal-nav { width: 100%; overflow-x: auto; }
+  .portal-nav__link { flex: 0 0 auto; }
   .controls { width: 100%; margin-left: 0; }
   .ctrl { flex: 1 1 100%; }
   .multi { min-width: 0; width: 100%; }
