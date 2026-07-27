@@ -6,8 +6,8 @@
 <meta name="description" content="AAW 让需求描述、SR 设计、AR 设计与代码实现形成可追溯的信息链，减少人与人之间的信息传递失真。">
 <title>AAW 工作流介绍 · Adoption Studio</title>
 <link rel="stylesheet" href="vendor/fonts.css">
-<link rel="stylesheet" href="aaw-workflow.css?v=20260727-6">
-<script defer src="aaw-workflow.js?v=20260727-4"></script>
+<link rel="stylesheet" href="aaw-workflow.css?v=20260727-8">
+<script defer src="aaw-workflow.js?v=20260727-5"></script>
 </head>
 <body>
 <div class="paper-grid" aria-hidden="true"></div>
@@ -58,11 +58,14 @@
       </div>
     </div>
 
-    <div class="terminal-demo hero-terminal" data-terminal-demo data-phase="idle" data-active-entry="sr" data-playing="true" aria-label="AAW 工作流入口交互演示">
+    <div class="terminal-demo hero-terminal" data-terminal-demo data-phase="command-typing" data-active-entry="ar" data-playing="true" aria-label="AAW 工作流 Agent 对话演示">
       <div class="terminal-demo__bar">
         <span class="terminal-lights" aria-hidden="true"><i></i><i></i><i></i></span>
         <span class="terminal-demo__identity"><i aria-hidden="true">◆</i> AI CODING ASSISTANT</span>
         <div class="terminal-demo__actions">
+          <span class="terminal-demo__switch-label">演示</span>
+          <button type="button" data-terminal-entry="ar" aria-pressed="true"><b>AR入口</b></button>
+          <button type="button" data-terminal-entry="sr" aria-pressed="false"><b>SR入口</b></button>
           <button type="button" data-terminal-toggle aria-label="暂停演示"><span aria-hidden="true">Ⅱ</span><b>暂停</b></button>
           <button type="button" data-terminal-replay aria-label="重新播放演示"><span aria-hidden="true">↻</span><b>重播</b></button>
         </div>
@@ -74,51 +77,57 @@
           <b>awesome-agent-workflow</b>
           <small>main · clean</small>
           <ol class="terminal-steps" aria-label="三个使用步骤">
-            <li><i>01</i><b>输入命令</b><small>/aaw-workflow</small></li>
-            <li><i>02</i><b>选择入口</b><small>SR 或 AR</small></li>
-            <li><i>03</i><b>恢复 / 创建</b><small>衔接已有上下文</small></li>
+            <li><i>01</i><b>发送命令</b><small>/aaw-workflow</small></li>
+            <li><i>02</i><b>回复入口</b><small>AR入口 / SR入口</small></li>
+            <li><i>03</i><b>Agent 执行</b><small>衔接已有上下文</small></li>
           </ol>
         </div>
 
         <div class="terminal-transcript">
-          <div class="terminal-row terminal-row--command">
-            <span class="terminal-prompt" aria-hidden="true">❯</span>
-            <code data-terminal-command></code><span class="terminal-cursor" aria-hidden="true"></span>
-            <button class="copy-command terminal-copy" type="button" data-copy="/aaw-workflow" aria-label="复制 /aaw-workflow 命令">复制命令</button>
-          </div>
-
-          <div class="terminal-detection">
-            <p><span aria-hidden="true">✓</span><b>仓库上下文</b><small>branch · modules · constraints</small></p>
-            <p><span aria-hidden="true">✓</span><b>架构基线</b><small data-terminal-baseline>读取 software_architecture.md</small></p>
-            <p><span aria-hidden="true">✓</span><b>工作流进度</b><small>读取 .sdd/&lt;SR&gt;/workflow.yaml</small></p>
-          </div>
-
-          <div class="terminal-entry">
-            <p class="terminal-question"><span>?</span> 请选择本次工作的入口</p>
-            <div class="terminal-entry__options" role="group" aria-label="工作流入口">
-              <button type="button" data-terminal-entry="sr" aria-pressed="true">
-                <span>SR</span><b>从原始需求开始</b><small>前置：原始需求 · 下一步：sr-init</small>
-              </button>
-              <button type="button" data-terminal-entry="ar" aria-pressed="false">
-                <span>AR</span><b>从明确变更接入</b><small>前置：架构基线 + AR · 下一步：ar-clarify</small>
-              </button>
+          <div class="terminal-conversation" aria-live="polite">
+            <div class="terminal-message terminal-message--user terminal-user-command">
+              <span>You</span>
+              <p><code>/aaw-workflow</code></p>
             </div>
-            <p class="terminal-hint"><kbd>↑</kbd><kbd>↓</kbd> 选择 <kbd>Enter</kbd> 确认</p>
-          </div>
 
-          <div class="terminal-result" aria-live="polite">
-            <span class="terminal-result__icon" aria-hidden="true">→</span>
-            <div>
-              <small data-terminal-result-label>已选择 SR 入口</small>
-              <b data-terminal-result-title>准备执行 sr-init</b>
-              <p data-terminal-result-copy>建立项目与架构上下文，再进入系统需求设计。</p>
+            <div class="terminal-message terminal-message--agent terminal-detection">
+              <span>Agent</span>
+              <div>
+                <p><i aria-hidden="true">✓</i> 已读取仓库上下文 <small>branch · modules · constraints</small></p>
+                <p><i aria-hidden="true">✓</i> <span data-terminal-baseline>已发现软件架构基线</span></p>
+                <p><i aria-hidden="true">✓</i> 已检查工作流进度 <small>.sdd/&lt;SR&gt;/workflow.yaml</small></p>
+              </div>
+            </div>
+
+            <div class="terminal-message terminal-message--agent terminal-entry">
+              <span>Agent</span>
+              <div>
+                <p>请选择本次工作的入口：</p>
+                <ol><li>AR入口</li><li>SR入口</li></ol>
+              </div>
+            </div>
+
+            <div class="terminal-message terminal-message--user terminal-user-entry">
+              <span>You</span>
+              <p data-terminal-entry-reply>AR入口</p>
+            </div>
+
+            <div class="terminal-message terminal-message--agent terminal-result">
+              <span>Agent</span>
+              <div>
+                <p><b data-terminal-result-label>已选择 AR 入口</b></p>
+                <p><i aria-hidden="true">✓</i> <span data-terminal-result-check>已发现软件架构基线，可直接复用</span></p>
+                <p><i aria-hidden="true">→</i> <span data-terminal-result-title>准备执行 ar-init / ar-clarify</span></p>
+                <p><i aria-hidden="true">→</i> <span data-terminal-result-copy>下一步：澄清本次变更的目标、范围与约束</span></p>
+              </div>
             </div>
           </div>
 
-          <div class="terminal-progress">
-            <span aria-hidden="true">↻</span>
-            <p><b data-terminal-progress-title>已创建工作流，可随时恢复</b><code>.sdd/&lt;SR&gt;/workflow.yaml</code></p>
-            <i aria-hidden="true"></i>
+          <div class="terminal-composer" aria-label="Agent 对话输入框">
+            <span class="terminal-composer__prompt" aria-hidden="true">›</span>
+            <code data-terminal-input></code>
+            <span class="terminal-cursor" aria-hidden="true"></span>
+            <span class="terminal-enter"><kbd>Enter</kbd> 发送</span>
           </div>
         </div>
       </div>

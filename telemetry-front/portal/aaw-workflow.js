@@ -244,41 +244,44 @@
   const terminalDemo = document.querySelector("[data-terminal-demo]");
 
   if (terminalDemo) {
-    const command = terminalDemo.querySelector("[data-terminal-command]");
+    const input = terminalDemo.querySelector("[data-terminal-input]");
     const toggle = terminalDemo.querySelector("[data-terminal-toggle]");
     const replay = terminalDemo.querySelector("[data-terminal-replay]");
     const entryButtons = Array.from(terminalDemo.querySelectorAll("[data-terminal-entry]"));
+    const entryReply = terminalDemo.querySelector("[data-terminal-entry-reply]");
     const resultLabel = terminalDemo.querySelector("[data-terminal-result-label]");
+    const resultCheck = terminalDemo.querySelector("[data-terminal-result-check]");
     const resultTitle = terminalDemo.querySelector("[data-terminal-result-title]");
     const resultCopy = terminalDemo.querySelector("[data-terminal-result-copy]");
     const baseline = terminalDemo.querySelector("[data-terminal-baseline]");
-    const progressTitle = terminalDemo.querySelector("[data-terminal-progress-title]");
     const commandText = "/aaw-workflow";
-    const duration = 10000;
+    const duration = 10500;
     const captureMode = new URLSearchParams(window.location.search).has("capture");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let activeEntry = "sr";
-    let elapsed = captureMode || reducedMotion ? 7600 : 0;
+    let activeEntry = "ar";
+    let elapsed = captureMode || reducedMotion ? 8500 : 0;
     let lastTime = performance.now();
     let playing = !captureMode && !reducedMotion;
     let inView = true;
     let lastPhase = "";
-    let lastTypedLength = -1;
+    let lastInputValue = "";
 
     const entryContent = {
-      sr: {
-        label: "已选择 SR 入口",
-        title: "准备执行 sr-init",
-        copy: "建立项目与架构上下文，再进入系统需求设计。",
-        baseline: "未发现完整基线，将在 sr-init 中建立",
-        progress: "已创建工作流，可随时恢复"
-      },
       ar: {
+        reply: "AR入口",
         label: "已选择 AR 入口",
+        check: "已发现软件架构基线，可直接复用",
         title: "准备执行 ar-init / ar-clarify",
-        copy: "复用已有架构基线，直接进入本次变更的需求澄清。",
-        baseline: "已发现软件架构基线，可直接复用",
-        progress: "已恢复工作流，继续当前 AR"
+        copy: "下一步：澄清本次变更的目标、范围与约束",
+        baseline: "已发现软件架构基线"
+      },
+      sr: {
+        reply: "SR入口",
+        label: "已选择 SR 入口",
+        check: "已接收原始需求，将原文保存为正式输入",
+        title: "准备执行 sr-init",
+        copy: "下一步：建立项目与架构上下文，进入 SR 设计",
+        baseline: "已检查仓库基线与已有进度"
       }
     };
 
@@ -288,22 +291,24 @@
       terminalDemo.dataset.activeEntry = entry;
       entryButtons.forEach((button) => {
         const selected = button.dataset.terminalEntry === entry;
-        button.classList.toggle("is-selected", selected);
         button.setAttribute("aria-pressed", String(selected));
       });
+      entryReply.textContent = content.reply;
       resultLabel.textContent = content.label;
+      resultCheck.textContent = content.check;
       resultTitle.textContent = content.title;
       resultCopy.textContent = content.copy;
       baseline.textContent = content.baseline;
-      progressTitle.textContent = content.progress;
     }
 
     function phaseFor(time) {
-      if (time < 400) return "idle";
-      if (time < 1600) return "typing";
-      if (time < 3100) return "detecting";
-      if (time < 4800) return "choosing";
-      if (time < 6500) return "launching";
+      if (time < 1100) return "command-typing";
+      if (time < 1450) return "command-sent";
+      if (time < 2800) return "detecting";
+      if (time < 3800) return "asking";
+      if (time < 5000) return "entry-typing";
+      if (time < 5350) return "entry-sent";
+      if (time < 7000) return "launching";
       return "done";
     }
 
@@ -314,12 +319,18 @@
         lastPhase = phase;
       }
 
-      const typedLength = elapsed < 400 ? 0 : elapsed < 1600
-        ? Math.min(commandText.length, Math.floor(((elapsed - 400) / 1200) * (commandText.length + 1)))
-        : commandText.length;
-      if (typedLength !== lastTypedLength) {
-        command.textContent = commandText.slice(0, typedLength);
-        lastTypedLength = typedLength;
+      let inputValue = "";
+      if (elapsed < 1100) {
+        const length = Math.min(commandText.length, Math.floor((elapsed / 1100) * (commandText.length + 1)));
+        inputValue = commandText.slice(0, length);
+      } else if (elapsed >= 3800 && elapsed < 5000) {
+        const reply = entryContent[activeEntry].reply;
+        const length = Math.min(reply.length, Math.floor(((elapsed - 3800) / 1200) * (reply.length + 1)));
+        inputValue = reply.slice(0, length);
+      }
+      if (inputValue !== lastInputValue) {
+        input.textContent = inputValue;
+        lastInputValue = inputValue;
       }
     }
 
@@ -335,9 +346,8 @@
         elapsed += Math.min(now - lastTime, 100);
         if (elapsed >= duration) {
           elapsed %= duration;
-          setEntry(activeEntry === "sr" ? "ar" : "sr");
           lastPhase = "";
-          lastTypedLength = -1;
+          lastInputValue = "";
         }
         render();
       }
@@ -348,10 +358,11 @@
     entryButtons.forEach((button) => {
       button.addEventListener("click", () => {
         setEntry(button.dataset.terminalEntry);
-        elapsed = 4750;
+        elapsed = 0;
         playing = true;
         lastTime = performance.now();
         lastPhase = "";
+        lastInputValue = "";
         updateToggle();
         render();
       });
@@ -369,7 +380,7 @@
       playing = !captureMode && !reducedMotion;
       lastTime = performance.now();
       lastPhase = "";
-      lastTypedLength = -1;
+      lastInputValue = "";
       updateToggle();
       render();
     });
