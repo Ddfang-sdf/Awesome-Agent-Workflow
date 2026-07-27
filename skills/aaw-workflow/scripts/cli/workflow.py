@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from shlex import quote
@@ -544,6 +545,7 @@ class WorkflowManager:
             step1 = _make_step(self.templates[start_type], 1, wf_vars, self.sdd_dir)
             wf = Workflow(
                 sr=sr,
+                workflow_id=str(uuid.uuid4()),
                 entry=entry,
                 status="in_progress",
                 created_at=datetime.now(timezone.utc).isoformat(),
@@ -551,6 +553,9 @@ class WorkflowManager:
                 steps=[step1],
             )
             self._save(wf)
+            from .runtime_logging import bind_workflow
+
+            bind_workflow(wf.workflow_id, wf.sr, wf.vars.get("AR"))
         except Exception:
             self._rollback_start(sr_dir, created_sr_dir, wrote_requirement)
             raise
@@ -589,7 +594,33 @@ class WorkflowManager:
         path = self._wf_path(sr)
         if not path.exists():
             raise WorkflowError(f"SR {sr} 不存在")
-        return Workflow.from_yaml(path)
+        wf = Workflow.from_yaml(path)
+        if not wf.workflow_id:
+            # Preserve the identity used by pre-workflow_id telemetry so an
+            # existing workflow keeps matching its server-side history.
+            from .telemetry import workflow_id as legacy_workflow_id
+            from .telemetry import TelemetryError
+
+            try:
+                wf.workflow_id = legacy_workflow_id(Path.cwd(), wf)
+            except TelemetryError:
+                # A non-Git workspace could not have produced valid legacy
+                # telemetry either.  Give it a deterministic local identity
+                # so status remains usable and the migration is stable.
+                key = f"{Path.cwd().resolve()}\n{wf.sr}\n{wf.created_at}"
+                wf.workflow_id = str(uuid.uuid5(uuid.NAMESPACE_URL, key))
+            self._save(wf)
+        else:
+            try:
+                wf.workflow_id = str(uuid.UUID(wf.workflow_id))
+            except ValueError as exc:
+                raise WorkflowError(
+                    f"SR {sr} workflow_id 非法: {wf.workflow_id!r}"
+                ) from exc
+        from .runtime_logging import bind_workflow
+
+        bind_workflow(wf.workflow_id, wf.sr, wf.vars.get("AR"))
+        return wf
 
     def _save(self, wf: Workflow) -> None:
         wf.to_yaml(self._wf_path(wf.sr))

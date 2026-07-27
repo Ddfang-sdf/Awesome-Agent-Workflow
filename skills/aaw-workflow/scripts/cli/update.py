@@ -1081,6 +1081,9 @@ def _reexec_entry(skills_root: Path, argv: list[str], target_version: str, lock:
         exec_target = sys.executable
         args = [sys.executable, str(entry), *argv]
     env = {**os.environ, HANDOFF_PATH_ENV: str(handoff), HANDOFF_TOKEN_ENV: token}
+    from . import runtime_logging
+
+    runtime_logging.prepare_reexec()
     sys.stdout.flush()
     sys.stderr.flush()
     lock.release()  # explicit: the re-executed process takes its own shared lock
