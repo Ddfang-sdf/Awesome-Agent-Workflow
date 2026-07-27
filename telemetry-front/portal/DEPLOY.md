@@ -9,6 +9,7 @@
 
 ```
 bright.html   test.html    bright.css   bright.js
+aaw-workflow.html   aaw-workflow.css   aaw-workflow.js
 config.js     mock-data.js
 ```
 
@@ -52,7 +53,8 @@ config.js     mock-data.js
    ```
 
 5. 浏览器访问：`http://<listen 的 IP>:<端口>/bright.html`；测试看板地址为
-   `http://<listen 的 IP>:<端口>/test.html`。
+   `http://<listen 的 IP>:<端口>/test.html`；工作流介绍页入口为
+   `http://<listen 的 IP>:<端口>/aaw-workflow`。
 
 ## 四、后端就绪前先自测前端
 
