@@ -6,8 +6,8 @@
 <meta name="description" content="AAW 让需求描述、SR 设计、AR 设计与代码实现形成可追溯的信息链，减少人与人之间的信息传递失真。">
 <title>AAW 工作流介绍 · Adoption Studio</title>
 <link rel="stylesheet" href="vendor/fonts.css">
-<link rel="stylesheet" href="aaw-workflow.css?v=20260727-5">
-<script defer src="aaw-workflow.js?v=20260727-3"></script>
+<link rel="stylesheet" href="aaw-workflow.css?v=20260727-6">
+<script defer src="aaw-workflow.js?v=20260727-4"></script>
 </head>
 <body>
 <div class="paper-grid" aria-hidden="true"></div>
@@ -27,78 +27,38 @@
 </header>
 
 <main>
-  <section class="hero" aria-labelledby="hero-title">
-    <div class="hero__copy">
-      <p class="eyebrow"><span>全链路信息保真</span> REQUIREMENT TRACEABILITY</p>
-      <h1 id="hero-title">让需求在每一次传递中，<em>都不失真。</em></h1>
-      <p class="hero__lead">AAW 串联需求描述、SR 设计、AR 设计与代码实现，让每个决策有来源、每次变更可追溯、每个角色基于同一份上下文协作。</p>
-      <div class="hero__actions">
-        <a class="button button--primary" href="#start">三步开始使用 <span aria-hidden="true">→</span></a>
-        <a class="button button--quiet" href="#workflow">查看完整流程</a>
+  <section class="hero" id="start" aria-labelledby="hero-title">
+    <div class="hero-overview">
+      <div class="hero__copy">
+        <p class="eyebrow"><span>全链路信息保真</span> REQUIREMENT TRACEABILITY</p>
+        <h1 id="hero-title">让需求在每一次传递中，<em>都不失真。</em></h1>
+        <p class="hero__lead">AAW 串联需求描述、SR 设计、AR 设计与代码实现，让每个角色基于同一份上下文协作。</p>
       </div>
-      <ul class="hero__proof" aria-label="AAW 核心能力">
-        <li><b>同一上下文</b><span>跨角色持续继承</span></li>
-        <li><b>两道门禁</b><span>分歧在实现前暴露</span></li>
-        <li><b>完整证据链</b><span>从需求追溯到交付</span></li>
-      </ul>
-    </div>
 
-    <div class="trace-card" aria-label="从需求到交付的上下文传递示意">
-      <header>
-        <span><i aria-hidden="true"></i> LIVE CONTEXT</span>
-        <b>信息完整度</b>
-      </header>
-      <div class="trace-source">
-        <small>ORIGINAL INTENT</small>
-        <strong>“为什么做、要解决什么、不能破坏什么”</strong>
-      </div>
-      <ol class="trace-chain">
-        <li style="--step:0"><span>01</span><b>需求描述</b><em>原始意图</em></li>
-        <li style="--step:1"><span>02</span><b>SR 设计</b><em>系统决策</em></li>
-        <li style="--step:2"><span>03</span><b>AR 设计</b><em>变更边界</em></li>
-        <li style="--step:3"><span>04</span><b>代码实现</b><em>工程落点</em></li>
-      </ol>
-      <div class="trace-status"><span>上下文持续继承</span><b>可追溯</b></div>
-    </div>
-  </section>
-
-  <section class="value-section" id="value" aria-labelledby="value-title">
-    <div class="section-heading">
-      <p class="section-index">01 / 工作流的价值</p>
-      <h2 id="value-title">效率损耗，往往不发生在写代码时。<br><em>它发生在信息传递时。</em></h2>
-      <p>代码越来越容易生成，准确传递意图却仍然昂贵。AAW 让信息不靠人的记忆和转述，而靠连续、可核验的工作流资产传递。</p>
-    </div>
-
-    <div class="value-matrix" aria-label="信息失真点、AAW 机制与可验证结果对照">
-      <div class="value-matrix__head"><span>信息在哪里失真</span><span>AAW 如何保真</span><span>最终得到什么</span></div>
-      <article>
-        <div><small>01 / ROLE HANDOFF</small><b>角色切换靠口头转述</b><p>背景、约束与取舍被压缩成任务标题。</p></div>
-        <div><small>TRACEABLE ASSET</small><b>上游产物自动成为下游输入</b><p>需求描述、SR、AR 与详设沿同一路径持续继承。</p></div>
-        <div><small>RESULT</small><b>少一次上下文重建</b><p>每个角色从同一份已确认事实开始工作。</p></div>
-      </article>
-      <article>
-        <div><small>02 / LATE CONFLICT</small><b>分歧拖到编码后暴露</b><p>范围、边界和异常路径在实现阶段才碰撞。</p></div>
-        <div><small>QUALITY GATE</small><b>SR 与模块设计两道门禁</b><p>证据、方案、验证与待决问题在放行前闭环。</p></div>
-        <div><small>RESULT</small><b>早一步发现问题</b><p>把返工从代码和测试阶段前移到设计阶段。</p></div>
-      </article>
-      <article>
-        <div><small>03 / LOST RATIONALE</small><b>代码只留下“改了什么”</b><p>实现与最初需求之间缺少可核验的决策链。</p></div>
-        <div><small>WORKFLOW EVIDENCE</small><b>状态、产物与确认持续入库</b><p><code>workflow.yaml</code> 串联每个节点的输入、输出与放行。</p></div>
-        <div><small>RESULT</small><b>随时回答“为什么”</b><p>从代码反向追溯任务、设计、AR 与原始意图。</p></div>
-      </article>
-      <div class="trace-strip" aria-label="AAW 全链路追溯路径">
-        <span>需求描述</span><i>→</i><span>SR 设计</span><i>→</i><span>AR 澄清</span><i>→</i><span>模块详设</span><i>→</i><span>任务卡</span><i>→</i><span>代码与验证</span>
+      <div class="trace-card" aria-label="从需求到交付的上下文传递示意">
+        <header>
+          <span><i aria-hidden="true"></i> LIVE CONTEXT</span>
+          <a href="#workflow">查看完整流程 →</a>
+        </header>
+        <div class="trace-source">
+          <small>ORIGINAL INTENT</small>
+          <strong>“为什么做、要解决什么、不能破坏什么”</strong>
+        </div>
+        <ol class="trace-chain">
+          <li><span>01</span><b>需求描述</b><em>原始意图</em></li>
+          <li><span>02</span><b>SR 设计</b><em>系统决策</em></li>
+          <li><span>03</span><b>AR 设计</b><em>变更边界</em></li>
+          <li><span>04</span><b>代码实现</b><em>工程落点</em></li>
+        </ol>
+        <ul class="hero__proof" aria-label="AAW 核心能力">
+          <li><b>同一上下文</b><span>跨角色持续继承</span></li>
+          <li><b>两道门禁</b><span>分歧在实现前暴露</span></li>
+          <li><b>完整证据链</b><span>从需求追溯到交付</span></li>
+        </ul>
       </div>
     </div>
-  </section>
 
-  <section class="start-section" id="start" aria-labelledby="start-title">
-    <div class="section-heading section-heading--compact">
-      <p class="section-index">02 / 工作流的使用方式</p>
-      <h2 id="start-title">不用先学一套方法论。<br><em>输入一条命令，就能开始。</em></h2>
-    </div>
-
-    <div class="terminal-demo" data-terminal-demo data-phase="idle" data-active-entry="sr" data-playing="true" aria-label="AAW 工作流入口交互演示">
+    <div class="terminal-demo hero-terminal" data-terminal-demo data-phase="idle" data-active-entry="sr" data-playing="true" aria-label="AAW 工作流入口交互演示">
       <div class="terminal-demo__bar">
         <span class="terminal-lights" aria-hidden="true"><i></i><i></i><i></i></span>
         <span class="terminal-demo__identity"><i aria-hidden="true">◆</i> AI CODING ASSISTANT</span>
@@ -165,9 +125,39 @@
     </div>
   </section>
 
+  <section class="value-section" id="value" aria-labelledby="value-title">
+    <div class="section-heading">
+      <p class="section-index">01 / 工作流的价值</p>
+      <h2 id="value-title">效率损耗，往往不发生在写代码时。<br><em>它发生在信息传递时。</em></h2>
+      <p>代码越来越容易生成，准确传递意图却仍然昂贵。AAW 让信息不靠人的记忆和转述，而靠连续、可核验的工作流资产传递。</p>
+    </div>
+
+    <div class="value-matrix" aria-label="信息失真点、AAW 机制与可验证结果对照">
+      <div class="value-matrix__head"><span>信息在哪里失真</span><span>AAW 如何保真</span><span>最终得到什么</span></div>
+      <article>
+        <div><small>01 / ROLE HANDOFF</small><b>角色切换靠口头转述</b><p>背景、约束与取舍被压缩成任务标题。</p></div>
+        <div><small>TRACEABLE ASSET</small><b>上游产物自动成为下游输入</b><p>需求描述、SR、AR 与详设沿同一路径持续继承。</p></div>
+        <div><small>RESULT</small><b>少一次上下文重建</b><p>每个角色从同一份已确认事实开始工作。</p></div>
+      </article>
+      <article>
+        <div><small>02 / LATE CONFLICT</small><b>分歧拖到编码后暴露</b><p>范围、边界和异常路径在实现阶段才碰撞。</p></div>
+        <div><small>QUALITY GATE</small><b>SR 与模块设计两道门禁</b><p>证据、方案、验证与待决问题在放行前闭环。</p></div>
+        <div><small>RESULT</small><b>早一步发现问题</b><p>把返工从代码和测试阶段前移到设计阶段。</p></div>
+      </article>
+      <article>
+        <div><small>03 / LOST RATIONALE</small><b>代码只留下“改了什么”</b><p>实现与最初需求之间缺少可核验的决策链。</p></div>
+        <div><small>WORKFLOW EVIDENCE</small><b>状态、产物与确认持续入库</b><p><code>workflow.yaml</code> 串联每个节点的输入、输出与放行。</p></div>
+        <div><small>RESULT</small><b>随时回答“为什么”</b><p>从代码反向追溯任务、设计、AR 与原始意图。</p></div>
+      </article>
+      <div class="trace-strip" aria-label="AAW 全链路追溯路径">
+        <span>需求描述</span><i>→</i><span>SR 设计</span><i>→</i><span>AR 澄清</span><i>→</i><span>模块详设</span><i>→</i><span>任务卡</span><i>→</i><span>代码与验证</span>
+      </div>
+    </div>
+  </section>
+
   <section class="collaboration-section" id="collaboration" aria-labelledby="collaboration-title">
     <div class="section-heading collaboration-heading">
-      <p class="section-index">03 / 跨角色协作流程</p>
+      <p class="section-index">02 / 跨角色协作流程</p>
       <h2 id="collaboration-title">不是把文档交给开发，<br><em>是把上下文交给代码仓。</em></h2>
       <p>SE / DE 在 <code>AR-clarify</code> 完成并评审后，将完整 <code>.sdd</code> 上下文合入业务代码仓；开发从同一基线恢复 AAW，继续模块详设、门禁与代码实现。</p>
     </div>
@@ -322,7 +312,7 @@
 
   <section class="workflow-section" id="workflow" aria-labelledby="workflow-title">
     <div class="section-heading workflow-heading">
-      <p class="section-index">04 / 工作流的核心流程</p>
+      <p class="section-index">03 / 工作流的核心流程</p>
       <h2 id="workflow-title">一条不断被继承、校验、修正的<br><em>信息闭环。</em></h2>
       <p>点击任意节点，查看它如何接收上游上下文、形成新的确定性，并将成果交给下一环节。</p>
     </div>
