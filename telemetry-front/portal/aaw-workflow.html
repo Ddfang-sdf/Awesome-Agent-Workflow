@@ -6,7 +6,7 @@
 <meta name="description" content="AAW 让需求描述、SR 设计、AR 设计与代码实现形成可追溯的信息链，减少人与人之间的信息传递失真。">
 <title>AAW 工作流介绍 · Adoption Studio</title>
 <link rel="stylesheet" href="vendor/fonts.css">
-<link rel="stylesheet" href="aaw-workflow.css?v=20260727-8">
+<link rel="stylesheet" href="aaw-workflow.css?v=20260727-10">
 <script defer src="aaw-workflow.js?v=20260727-5"></script>
 </head>
 <body>
@@ -423,6 +423,72 @@
         </dl>
         <p class="detail-footnote">每一步的状态与上下游关系都会写入 <code>workflow.yaml</code>，因此流程可中断、可恢复、可审计。</p>
       </aside>
+    </div>
+  </section>
+
+  <section class="assets-section" id="assets" aria-labelledby="assets-title">
+    <div class="section-heading assets-heading">
+      <p class="section-index">04 / 工作流资产如何进入代码仓</p>
+      <h2 id="assets-title">不是散落在对话里，<br><em>而是进入版本基线。</em></h2>
+      <p>AAW 把每一阶段确认过的上下文写入代码仓。下一角色读取的不是转述，而是与代码一起演进、可评审、可追溯的正式资产。</p>
+    </div>
+
+    <div class="repo-assets">
+      <div class="repo-tree-panel" aria-label="AAW 生成的示例代码仓目录">
+        <header>
+          <div><small>EXAMPLE REPOSITORY</small><b>订单履约服务</b></div>
+          <span>AAW 生成后的示例目录</span>
+        </header>
+        <div class="repo-tree" role="tree">
+          <p class="tree-line tree-line--root" role="treeitem"><code>.sdd/</code></p>
+          <p class="tree-line asset-tone--baseline" role="treeitem"><span>├──</span><code>software_architecture.md</code><em>01</em></p>
+          <p class="tree-line asset-tone--baseline" role="treeitem"><span>├──</span><code>spec.md</code></p>
+          <p class="tree-line asset-tone--baseline" role="treeitem"><span>├──</span><code>AICodingGuidelines.md</code></p>
+          <p class="tree-line asset-tone--sr" role="treeitem"><span>└──</span><code>SR-001/</code><em>02</em></p>
+          <p class="tree-line tree-line--d2 asset-tone--sr" role="treeitem"><span>├──</span><code>original-requirement.md</code></p>
+          <p class="tree-line tree-line--d2 asset-tone--sr" role="treeitem"><span>├──</span><code>SR-design.md</code></p>
+          <p class="tree-line tree-line--d2 asset-tone--sr" role="treeitem"><span>├──</span><code>SR-design-gate.md</code></p>
+          <p class="tree-line tree-line--d2 asset-tone--sr" role="treeitem"><span>├──</span><code>workflow.yaml</code></p>
+          <p class="tree-line tree-line--d2 asset-tone--ar" role="treeitem"><span>└──</span><code>AR-001/</code><em>03</em></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-source.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-clarify.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>module-boundary-design.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-001-订单履约-订单模块详细设计说明书.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-001-订单履约-订单模块测试用例设计.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--ar" role="treeitem"><span>├──</span><code>AR-001-订单履约-订单模块设计门禁结果.md</code></p>
+          <p class="tree-line tree-line--d3 asset-tone--task" role="treeitem"><span>└──</span><code>订单模块_tasks/</code><em>04</em></p>
+          <p class="tree-line tree-line--d4 asset-tone--task" role="treeitem"><span>├──</span><code>overview.md</code></p>
+          <p class="tree-line tree-line--d4 asset-tone--task" role="treeitem"><span>├──</span><code>T01-领域模型调整.md</code></p>
+          <p class="tree-line tree-line--d4 asset-tone--task" role="treeitem"><span>└──</span><code>T02-履约接口实现.md</code></p>
+        </div>
+      </div>
+
+      <div class="asset-notes" aria-label="目录资产的四个层级">
+        <article class="asset-note asset-tone--baseline">
+          <span>01</span>
+          <div><small>REPOSITORY BASELINE</small><h3>仓库级长期基线</h3><p>架构、规范与 AI 编码约束由所有需求共享，保证每次设计和开发都站在同一事实基础上。</p></div>
+          <code>architecture · spec · guidelines</code>
+        </article>
+        <article class="asset-note asset-tone--sr">
+          <span>02</span>
+          <div><small>SYSTEM REQUIREMENT</small><h3>SR 级需求资产</h3><p>原始需求原文、系统设计、门禁结论与流程状态共同保留，任何人都能回到需求起点核验。</p></div>
+          <code>source → design → gate → state</code>
+        </article>
+        <article class="asset-note asset-tone--ar">
+          <span>03</span>
+          <div><small>CHANGE &amp; MODULE DESIGN</small><h3>AR 与模块设计资产</h3><p>变更边界、模块责任、详细设计、测试设计和门禁证据在同一 AR 目录中连续继承。</p></div>
+          <code>clarify → boundary → detail → test</code>
+        </article>
+        <article class="asset-note asset-tone--task">
+          <span>04</span>
+          <div><small>DEVELOPMENT UNITS</small><h3>开发任务资产</h3><p>通过门禁的设计被拆成可验收任务；开发从代码仓恢复完整上下文，再提交实现与验证证据。</p></div>
+          <code>overview → T01 → T02 → code</code>
+        </article>
+      </div>
+    </div>
+
+    <div class="asset-continuity" aria-label="工作流资产连续性">
+      <span>原始意图</span><i>→</i><span>SR 设计</span><i>→</i><span>AR 澄清</span><i>→</i><span>模块详设</span><i>→</i><span>开发任务</span><i>→</i><b>代码与证据共同入库</b>
     </div>
   </section>
 
