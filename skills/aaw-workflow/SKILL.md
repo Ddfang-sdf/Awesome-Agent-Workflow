@@ -27,6 +27,14 @@ uv run <skill-dir>/scripts/aaw.py update --json
 
 即使跳过了这一步，`status` 命令也会自动检查并应用更新作为兜底；但显式执行 `update` 是首选路径，能让用户明确看到版本变化。
 
+## 本地运行日志
+
+CLI 默认将完整 stdout/stderr 和命令生命周期记录到仓库根目录的 `.aaw/logs/`。
+具体 workflow 使用持久化 UUID 对应独立日志文件，全局命令写入 `system.log`。
+日志可能含需求或代码等敏感内容；需要禁用时设置 `AAW_LOGGING=off`，需要调试级日志时
+设置 `AAW_LOG_LEVEL=DEBUG`。目录布局、滚动和保留策略见
+`references/client-logging.md`。
+
 ## 入口意图判定
 
 当用户通过本 skill 但没有给出明确指令（例如空输入、只说“使用 aaw-workflow”、只贴需求但没说明继续还是新建）时，不要因为仓库中存在进行中的 workflow 就自动继续执行。

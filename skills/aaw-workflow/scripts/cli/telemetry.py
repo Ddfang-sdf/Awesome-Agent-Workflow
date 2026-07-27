@@ -161,6 +161,12 @@ def repository_name(root: Path) -> str:
 
 
 def workflow_id(root: Path, wf: Workflow) -> str:
+    persisted = getattr(wf, "workflow_id", "")
+    if persisted:
+        try:
+            return str(uuid.UUID(persisted))
+        except ValueError as exc:
+            raise TelemetryError(f"Workflow has invalid workflow_id: {persisted!r}") from exc
     stable_key = f"{repository_name(root)}\n{wf.sr}\n{wf.created_at}"
     return str(uuid.uuid5(uuid.NAMESPACE_URL, stable_key))
 

@@ -53,7 +53,12 @@ def _die(msg: str, code: int = 1) -> None:
 
 
 def _echo_json(data: dict) -> None:
-    typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
+    pretty = json.dumps(data, ensure_ascii=False, indent=2)
+    compact = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    from .runtime_logging import echo_json
+
+    if not echo_json(pretty, compact):
+        typer.echo(pretty)
 
 
 def _parse_vars(
@@ -134,6 +139,7 @@ def start(
     payload = {
         "ok": True,
         "sr": wf.sr,
+        "workflow_id": wf.workflow_id,
         "entry": wf.entry,
         "workflow": str(mgr._wf_path(wf.sr)),
         "steps": [{"id": s.id, "type": s.type, "name": s.name} for s in wf.steps],
@@ -205,6 +211,7 @@ def status(
 
     data = {
         "sr": wf.sr,
+        "workflow_id": wf.workflow_id,
         "entry": wf.entry,
         "status": wf.status,
         "vars": wf.vars,

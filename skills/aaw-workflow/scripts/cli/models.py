@@ -138,6 +138,7 @@ def _infer_execution(skill: list[str], prompt: dict[str, Any] | None) -> str:
 @dataclass
 class Workflow:
     sr: str
+    workflow_id: str = ""
     entry: str = "sr"
     status: str = "in_progress"
     created_at: str = ""
@@ -155,6 +156,7 @@ class Workflow:
         vars_.setdefault("SR", data["sr"])
         return cls(
             sr=data["sr"],
+            workflow_id=data.get("workflow_id", ""),
             entry=data.get("entry", "sr"),
             status=data.get("status", "in_progress"),
             created_at=data.get("created_at", ""),
@@ -168,6 +170,7 @@ class Workflow:
     def to_yaml(self, path: Path) -> None:
         d: dict[str, Any] = {
             "sr": self.sr,
+            "workflow_id": self.workflow_id,
             "entry": self.entry,
             "status": self.status,
             "created_at": self.created_at,
