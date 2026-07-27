@@ -6,7 +6,7 @@
 <meta name="description" content="AAW 让需求描述、SR 设计、AR 设计与代码实现形成可追溯的信息链，减少人与人之间的信息传递失真。">
 <title>AAW 工作流介绍 · Adoption Studio</title>
 <link rel="stylesheet" href="vendor/fonts.css">
-<link rel="stylesheet" href="aaw-workflow.css?v=20260727-4">
+<link rel="stylesheet" href="aaw-workflow.css?v=20260727-5">
 <script defer src="aaw-workflow.js?v=20260727-3"></script>
 </head>
 <body>
@@ -176,27 +176,68 @@
       <section class="swimlane swimlane--design" aria-labelledby="role-design">
         <header class="swimlane__role">
           <span class="role-avatar role-avatar--design">SE<br>DE</span>
-          <div><small>ROLE 01</small><h3 id="role-design">需求设计侧</h3><p>把需求意图收敛成开发可承接的 AR 基线</p></div>
+          <div><small>ROLE 01 · COLLABORATIVE</small><h3 id="role-design">需求设计侧</h3><p>从原始需求到已确认 AR，形成开发可承接的完整基线</p></div>
         </header>
-        <div class="lane-track lane-track--design">
-          <article class="collab-step">
-            <span>01</span><small>CLARIFY</small>
-            <h4>完成 AR 澄清</h4>
-            <p>明确目标、范围、约束、承接模块与验收边界。</p>
-            <div class="collab-facts"><span><b>OUT</b> AR-clarify.md</span><span><b>DONE</b> 无待决歧义</span></div>
-          </article>
-          <article class="collab-step collab-step--human">
-            <span>02</span><small>REVIEW</small>
-            <h4>SE / DE 评审确认</h4>
-            <p>确认没有把歧义、猜测和待决问题继续传给开发。</p>
-            <div class="collab-facts"><span><b>OWNER</b> SE / DE</span><span><b>DONE</b> 评审通过</span></div>
-          </article>
-          <article class="collab-step collab-step--merge">
-            <span>03</span><small>MERGE CONTEXT</small>
-            <h4>完整上下文上库</h4>
-            <p>将 AR 澄清、架构基线与工作流进度作为一个交接包。</p>
-            <div class="collab-facts"><span><b>OUT</b> 完整 .sdd</span><span><b>DONE</b> 合入业务仓</span></div>
-          </article>
+        <div class="design-chains">
+          <section class="design-chain" aria-label="SR 需求设计链">
+            <header><div><small>CHAIN A · SR</small><b>从原始意图到可拆分的系统需求</b></div><em>门禁失败 / 阻塞 ↩ 返回 SR 设计</em></header>
+            <div class="design-track design-track--sr">
+              <article class="collab-step">
+                <span>01</span><small>CAPTURE</small>
+                <h4>原始需求入库</h4>
+                <p>保留目标、背景、约束与原始表达。</p>
+                <div class="collab-facts"><span><b>OUT</b> original-requirement.md</span><span><b>DONE</b> 原意可核验</span></div>
+              </article>
+              <article class="collab-step collab-step--human">
+                <span>02</span><small>SR-INIT</small>
+                <h4>建立架构上下文</h4>
+                <p>识别仓库结构、边界与工程约束。</p>
+                <div class="collab-facts"><span><b>OUT</b> software_architecture.md</span><span><b>GO</b> 人工确认</span></div>
+              </article>
+              <article class="collab-step">
+                <span>03</span><small>SR-DESIGN</small>
+                <h4>系统需求设计</h4>
+                <p>形成范围、流程、契约与验收闭环。</p>
+                <div class="collab-facts"><span><b>OUT</b> SR-design.md</span><span><b>DONE</b> 可进入审查</span></div>
+              </article>
+              <article class="collab-step collab-step--gate">
+                <span>04</span><small>SR-DESIGN-GATE</small>
+                <h4>SR 设计门禁</h4>
+                <p>审查边界、冲突、风险与可拆分性。</p>
+                <div class="collab-facts"><span><b>OUT</b> 门禁结论 / 报告</span><span><b>GO</b> PASS + 人工放行</span></div>
+              </article>
+              <article class="collab-step collab-step--human">
+                <span>05</span><small>AR-SPLIT</small>
+                <h4>确认 AR 拆分</h4>
+                <p>确定稳定 AR 编号、标题与范围。</p>
+                <div class="collab-facts"><span><b>OUT</b> AR 清单</span><span><b>DONE</b> 拆分决策确认</span></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="design-chain design-chain--handoff" aria-label="AR 澄清与交接链">
+            <header><div><small>CHAIN B · AR HANDOFF</small><b>从单次变更到可信交接包</b></div><em>存在歧义 / 未确认 ↩ 停留在 AR 澄清</em></header>
+            <div class="design-track design-track--ar">
+              <article class="collab-step collab-step--human">
+                <span>06</span><small>AR-CLARIFY</small>
+                <h4>完成 AR 澄清</h4>
+                <p>明确目标、范围、约束、模块与验收边界。</p>
+                <div class="collab-facts"><span><b>OUT</b> AR-clarify.md</span><span><b>GO</b> 无待决歧义</span></div>
+              </article>
+              <article class="collab-step collab-step--human">
+                <span>07</span><small>REVIEW</small>
+                <h4>SE / DE 评审确认</h4>
+                <p>确认不把猜测和待决问题继续传给开发。</p>
+                <div class="collab-facts"><span><b>OWNER</b> SE / DE 协作</span><span><b>DONE</b> 评审通过</span></div>
+              </article>
+              <article class="collab-step collab-step--merge">
+                <span>08</span><small>MERGE CONTEXT</small>
+                <h4>完整上下文上库</h4>
+                <p>将需求、设计、架构与工作流状态合并入仓。</p>
+                <div class="collab-facts"><span><b>OUT</b> 完整 .sdd + workflow.yaml</span><span><b>DONE</b> 合入业务仓</span></div>
+              </article>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -229,31 +270,31 @@
         </header>
         <div class="lane-track lane-track--development">
           <article class="collab-step">
-            <span>04</span><small>RESUME</small>
+            <span>09</span><small>RESUME</small>
             <h4>拉取并恢复 AAW</h4>
             <p>从代码仓读取最新 <code>.sdd</code> 和工作流状态。</p>
             <div class="collab-facts"><span><b>IN</b> 可信基线</span><span><b>DONE</b> 状态恢复</span></div>
           </article>
           <article class="collab-step">
-            <span>05</span><small>BOUNDARY</small>
+            <span>10</span><small>BOUNDARY</small>
             <h4>模块边界与分组</h4>
             <p>从 <code>module-boundary-design</code> 正式接手。</p>
             <div class="collab-facts"><span><b>OUT</b> 模块边界</span><span><b>DONE</b> 分组确认</span></div>
           </article>
           <article class="collab-step">
-            <span>06</span><small>DETAIL DESIGN</small>
+            <span>11</span><small>DETAIL DESIGN</small>
             <h4>证据、详设与测试</h4>
             <p>完成 AS-IS、TO-BE 和测试用例设计。</p>
             <div class="collab-facts"><span><b>OUT</b> 事实 + 方案</span><span><b>DONE</b> 可验证</span></div>
           </article>
           <article class="collab-step collab-step--gate">
-            <span>07</span><small>GATE</small>
+            <span>12</span><small>GATE</small>
             <h4>门禁与任务拆分</h4>
             <p>设计通过质量闸门后，拆成可验收任务。</p>
             <div class="collab-facts"><span><b>OUT</b> 任务卡</span><span><b>DONE</b> 门禁通过</span></div>
           </article>
           <article class="collab-step collab-step--ship">
-            <span>08</span><small>SHIP</small>
+            <span>13</span><small>SHIP</small>
             <h4>开发代码合入</h4>
             <p>实现、测试、自审、复验完成后回到代码仓。</p>
             <div class="collab-facts"><span><b>OUT</b> 代码 + 证据</span><span><b>DONE</b> 交付闭环</span></div>

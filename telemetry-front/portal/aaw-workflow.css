@@ -773,6 +773,41 @@ h1 em, h2 em { color: var(--green); font-style: normal; }
 }
 .lane-track--design { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .lane-track--development { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.swimlane--design { min-height: 0; }
+.design-chains { min-width: 0; padding: 14px 5px 14px 16px; }
+.design-chain + .design-chain { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-dark); }
+.design-chain > header {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 3px 8px;
+}
+.design-chain > header small { color: var(--green); font: 700 7px var(--mono); letter-spacing: .09em; }
+.design-chain > header b { display: block; margin-top: 3px; font: 600 11px var(--display); }
+.design-chain > header em {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 5px;
+  color: var(--red);
+  background: var(--red-soft);
+  font: 700 7px var(--mono);
+  font-style: normal;
+}
+.design-track {
+  display: grid;
+  align-items: stretch;
+  gap: 10px;
+}
+.design-track--sr { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.design-track--ar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.design-track .collab-step { min-height: 108px; padding: 11px 10px 39px; }
+.design-track .collab-step + .collab-step::before { left: -11px; width: 10px; }
+.design-track .collab-step + .collab-step::after { left: -7px; }
+.design-track .collab-step h4 { margin-top: 12px; }
+.design-track .collab-step p { font-size: 8px; line-height: 1.45; }
+.design-track .collab-facts { left: 9px; right: 9px; bottom: 6px; }
 .collab-step {
   position: relative;
   min-height: 124px;
@@ -1329,6 +1364,10 @@ footer {
   .lane-track { padding: 12px 5px 26px; overflow-x: auto; }
   .lane-track--design { grid-template-columns: repeat(3, minmax(210px, 1fr)); }
   .lane-track--development { grid-template-columns: repeat(5, minmax(165px, 1fr)); }
+  .design-chains { padding: 12px 5px 18px; }
+  .design-track { overflow-x: auto; padding-bottom: 6px; }
+  .design-track--sr { grid-template-columns: repeat(5, minmax(180px, 1fr)); }
+  .design-track--ar { grid-template-columns: repeat(3, minmax(210px, 1fr)); }
   .repo-track { padding: 12px 5px 26px; }
   .handoff-feedback { grid-template-columns: 1fr; }
   .workflow-atlas { grid-template-columns: 1fr; }
@@ -1386,6 +1425,20 @@ footer {
   .usage-beats li + li { border-left: 0; border-top: 1px solid var(--line); }
   .handoff-board { margin-inline: -8px; padding: 15px; }
   .lane-track--design, .lane-track--development { grid-template-columns: 1fr; overflow: visible; }
+  .design-chain > header { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .design-track--sr, .design-track--ar { grid-template-columns: 1fr; overflow: visible; }
+  .design-track .collab-step { min-height: 118px; }
+  .design-track .collab-step + .collab-step::before {
+    left: 50%;
+    top: -11px;
+    width: 1px;
+    height: 10px;
+  }
+  .design-track .collab-step + .collab-step::after {
+    content: "↓";
+    left: calc(50% - 5px);
+    top: -9px;
+  }
   .collab-step { min-height: 130px; }
   .collab-step + .collab-step::before {
     left: 50%;
