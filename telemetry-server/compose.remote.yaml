@@ -22,8 +22,8 @@ services:
 
   app:
     build: .
+    image: aaw-telemetry-server:${AAW_TELEMETRY_VERSION:-2.3.2}
     restart: unless-stopped
-    env_file: .env
     environment:
       AAW_TELEMETRY_DATABASE_URL: mysql+pymysql://aaw:${MYSQL_PASSWORD}@mysql:3306/aaw_telemetry?charset=utf8mb4
       AAW_TELEMETRY_PROJECTS_FILE: /app/config/projects.yaml
@@ -31,6 +31,9 @@ services:
       AAW_TELEMETRY_LOGGING_CONFIG_FILE: /app/config/logging.yaml
       AAW_TELEMETRY_LOG_DIRECTORY: /var/log/aaw-telemetry
       AAW_TELEMETRY_LOG_LEVEL: INFO
+      AAW_TELEMETRY_ATTRIBUTION_SERVICE_URL: ${AAW_TELEMETRY_ATTRIBUTION_SERVICE_URL}
+      AAW_TELEMETRY_ATTRIBUTION_TIMEOUT_SECONDS: ${AAW_TELEMETRY_ATTRIBUTION_TIMEOUT_SECONDS:-10}
+      AAW_TELEMETRY_ATTRIBUTION_API_TOKEN: ${AAW_TELEMETRY_ATTRIBUTION_API_TOKEN:-}
     command:
       - /bin/sh
       - -c

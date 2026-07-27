@@ -122,18 +122,14 @@ def test_business_message_is_readable_and_traceable(client):
     assert payload["data"]["file"]["sha256"] not in rendered
 
 
-def test_service_start_and_scheduler_decision_are_logged(client):
+def test_service_start_is_logged_without_an_in_process_scheduler(client):
     log_directory = client.app.state.log_directory
 
     started = _event_line(log_directory / "server.log", "service.started")
-    scheduler = _event_line(
-        log_directory / "server.log",
-        "attribution.retry_scheduler_skipped",
-    )
-
     assert "version=0.1.0" in started
     assert "[system] Telemetry Server 已启动" in started
-    assert "reason=mock_service" in scheduler
+    rendered = (log_directory / "server.log").read_text(encoding="utf-8")
+    assert "attribution.retry_scheduler" not in rendered
 
 
 def test_workflow_consistency_failure_has_a_readable_business_event(client):

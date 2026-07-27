@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     max_request_bytes: int = 1024 * 1024
     max_patch_bytes: int = 10 * 1024 * 1024
     upload_session_seconds: int = 3600
+    attribution_service_url: str = "http://127.0.0.1:8010"
+    attribution_timeout_seconds: float = 10.0
+    attribution_api_token: SecretStr | None = None
+
+    @field_validator("attribution_api_token", mode="before")
+    @classmethod
+    def empty_attribution_token_is_none(cls, value):
+        return None if value == "" else value
 
     @model_validator(mode="after")
     def load_database_and_validate_limits(self) -> Settings:
@@ -67,6 +75,10 @@ class Settings(BaseSettings):
             raise ValueError("max_patch_bytes must not be smaller than max_request_bytes")
         if not 60 <= self.upload_session_seconds <= 86400:
             raise ValueError("upload_session_seconds must be between 60 and 86400")
+        if not self.attribution_service_url.startswith(("http://", "https://")):
+            raise ValueError("attribution_service_url must use http or https")
+        if not 0.1 <= self.attribution_timeout_seconds <= 300:
+            raise ValueError("attribution_timeout_seconds must be between 0.1 and 300")
         return self
 
 
