@@ -41,9 +41,10 @@ uv run <skill-dir>/scripts/aaw.py status --json
 
 1. 如果用户明确说“继续 / 恢复 / 查看进度 / 处理 SR-XXX”，进入恢复流程。
 2. 如果用户明确说“新建 / 启动 / 从 SR 入口 / 从 AR 入口”，进入启动流程。
-3. 如果用户意图不明确且已有 workflow，列出已有 SR，并询问用户是继续已有 workflow，还是新开 SR/AR workflow；等待用户选择，不要执行 `next`。
-4. 如果用户意图不明确且没有已有 workflow，询问用户选择 SR 入口还是 AR 入口，并收集启动所需变量。
-5. 如果用户要继续但没有指定 SR，且存在多个 workflow，列出候选 SR 并让用户选择。
+3. 如果用户明确说“回退 / 返工 / 重做 / 重新执行某个阶段”，先定位目标 SR 和 step，再执行不带 `--artifacts` 的 `rollback --json` 获取回退预览；向用户展示 CLI 返回的两种成果物策略，等待用户明确选择后执行所选 `command_argv`。预览阶段不得修改 workflow 或文件。
+4. 如果用户意图不明确且已有 workflow，列出已有 SR，并询问用户是继续已有 workflow，还是新开 SR/AR workflow；等待用户选择，不要执行 `next`。
+5. 如果用户意图不明确且没有已有 workflow，询问用户选择 SR 入口还是 AR 入口，并收集启动所需变量。
+6. 如果用户要继续但没有指定 SR，且存在多个 workflow，列出候选 SR 并让用户选择。
 
 启动新 workflow 前必须确认新的 `SR`；不要复用已有 `.sdd/<SR>/workflow.yaml`，除非用户明确表示要继续该 SR。
 
@@ -101,7 +102,7 @@ uv run <skill-dir>/scripts/aaw.py start --entry ar --var SR=SR-XXX --var AR=AR-X
 - `data_file`：需要 `--data-file` 时的建议 JSON 文件路径；文件位于 `.sdd/<SR>/.aaw/data/`。
 - `input` / `output`：输入和交付件列表；路径项会带 `exists`。
 - `inputs`：required 输入检查结果；若 `blocked=true` 或 `missing_required` 非空，不要执行该工作单，也不要执行 `done`。
-- `deliverables`：强制交付件检查结果；`commands.done` 也会校验 required output，缺失时 CLI 会拒绝推进。
+- `deliverables`：强制交付件检查结果；它只用于说明已有成果和执行 `done` 前的交付校验，不能决定是否跳过当前 step。`commands.done` 会校验 required output，缺失时 CLI 会拒绝推进。
 - `user_confirm`：当前工作单完成后，流转到下游时的用户确认策略；`skip` 表示直接放行，`ask` 表示默认询问用户，`must` 表示必须用户确认。
 - `commands.done`：完成当前 step 的可执行命令模板；若需要数据，默认使用 `--data-file <JSON_FILE>`。
 - `commands.done_argv`：同一命令的参数数组形式，便于工具调用。
@@ -118,7 +119,7 @@ uv run <skill-dir>/scripts/aaw.py start --entry ar --var SR=SR-XXX --var AR=AR-X
 3. 若 `status=awaiting_user_confirm`，向用户确认是否放行到 `pending_user_confirm.planned_next`；用户确认后执行 `commands.user_confirm`，然后回到第 1 步。
 4. 若有多个 `ready`，向用户列出 `id/name/type/input/output` 并让用户选择。
 5. 若 `inputs.blocked=true`，先补齐 `inputs.missing_required` 中列出的 required 输入；缺失时不要执行子 skill，也不要执行 `commands.done`。
-6. 若 `deliverables.can_skip=true`，说明强制交付件已存在；不要重复执行子 skill。若 `data` 为空，可直接执行 `commands.done`；若 `data` 不为空，仍需先按 `data.fields` 构造数据文件。
+6. 无论交付件是否存在，只要当前 step 位于 `ready` 中，就必须执行。若 `output` 中存在 `exists=true` 的路径，先完整读取并评估已有成果，把它作为本轮修改基线；可按当前要求局部修改或整体重写，但必须写回原路径，不得仅因文件存在而跳过子 skill 或直接执行 `done`。已有成果中仍然有效的信息和已确认答案应复用，只询问当前无法确定的信息。
 7. 按 `execution` 执行：
    - `skill`：加载并完整执行 `skill` 中列出的子技能；若同时存在 `prompt` 或 `data_prompt`，在子技能完成后继续按其说明收集数据。
    - `prompt`：按 `prompt` 执行。
@@ -134,7 +135,22 @@ uv run <skill-dir>/scripts/aaw.py start --entry ar --var SR=SR-XXX --var AR=AR-X
 
 - 若门禁结论为 `通过`，向 CLI 提交 `{"gate_result":"pass", ...}`，`done` 成功后进入 `task-split`。
 - 若门禁结论为 `不通过` 或 `阻塞`，不要推进到 `task-split`；可提交 `gate_result=fail/blocked` 获取 CLI 拒绝提示，但 step 会保持未完成。
-- 不通过/阻塞时默认原地修正 ASIS/TOBE/测试设计成果物，然后重新执行 gate。不要自动 rollback；只有用户明确要求重走上游节点，或已经生成了需要废弃的下游 step 时，才执行 `rollback`。
+- 不通过/阻塞时默认原地修正 ASIS/TOBE/测试设计成果物，然后重新执行 gate。不要自动 rollback；只有用户明确要求重走上游节点时，才获取 rollback 预览并让用户选择保留成果物返工或删除成果物重做。
+
+## 回退
+
+用户要求回退时，先执行：
+
+```bash
+uv run <skill-dir>/scripts/aaw.py rollback --sr SR-XXX <id> --json
+```
+
+无 `--artifacts` 的命令只返回预览，不修改 workflow 或文件。向用户展示 `target_step`、`invalidated_step_ids`、`managed_artifacts` 和 `choices`，明确询问：
+
+- `preserve`：保留目标及下游登记成果；重新执行时读取并修改原文件。
+- `discard`：删除目标及下游由 CLI 登记的普通成果文件；重新执行时从有效上游输入创建。
+
+用户选择后，直接执行对应 choice 的 `command_argv`，不要自行拼接、替换或推测策略。CLI 只能处理 `managed_artifacts` 中列出的成果；未登记的代码、目录或其他文件不在自动删除范围内。
 
 ## 命令速查
 
@@ -157,6 +173,10 @@ uv run <skill-dir>/scripts/aaw.py done --sr SR-XXX <id> --data-file data.json --
 uv run <skill-dir>/scripts/aaw.py done --sr SR-XXX <id> --data '<JSON>' --json  # 备用
 uv run <skill-dir>/scripts/aaw.py user-confirm --sr SR-XXX --json
 
-# 回退
+# 回退预览（不修改状态或文件）
 uv run <skill-dir>/scripts/aaw.py rollback --sr SR-XXX <id> --json
+
+# 用户明确选择后执行返回的 command_argv
+uv run <skill-dir>/scripts/aaw.py rollback --sr SR-XXX <id> --artifacts preserve --json
+uv run <skill-dir>/scripts/aaw.py rollback --sr SR-XXX <id> --artifacts discard --json
 ```

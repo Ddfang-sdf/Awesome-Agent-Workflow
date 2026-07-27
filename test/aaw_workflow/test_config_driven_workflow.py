@@ -866,7 +866,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         with self.assertRaises(DataError):
             self._done(wf, 4, json.dumps({"module_groups": []}))
 
-    def test_rollback_removes_descendant_steps_and_files(self) -> None:
+    def test_rollback_preserve_removes_descendant_steps_but_keeps_files(self) -> None:
         wf = self.mgr.start("ar", {"SR": "SR-006", "AR": "AR-001", "描述": "用户管理"})
         self._done(wf, 1)
         ar_step = wf.get_step(2)
@@ -876,13 +876,31 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         ar_output.write_text("clarified", "utf-8")
         self._done(wf, 2)
 
-        result = self.mgr.rollback(wf, 1)
+        result = self.mgr.rollback(wf, 1, "preserve")
 
         self.assertEqual(2, result["removed"])
-        self.assertFalse(ar_output.exists())
+        self.assertTrue(ar_output.exists())
         self.assertEqual([1], [s.id for s in wf.steps])
         self.assertFalse(wf.steps[0].finished)
         self.assertEqual([], wf.steps[0].next)
+
+    def test_rollback_discard_removes_target_and_descendant_files(self) -> None:
+        wf = self.mgr.start("ar", {"SR": "SR-006-D", "AR": "AR-001", "描述": "用户管理"})
+        self._done(wf, 1)
+        target = wf.get_step(1)
+        descendant = wf.get_step(2)
+        assert target is not None
+        assert descendant is not None
+        target_output = self._abs(target.output[0]["path"])
+        descendant_output = self._abs(descendant.output[0]["path"])
+        descendant_output.parent.mkdir(parents=True, exist_ok=True)
+        descendant_output.write_text("clarified", "utf-8")
+
+        result = self.mgr.rollback(wf, 1, "discard")
+
+        self.assertEqual("discard", result["artifact_policy"])
+        self.assertFalse(target_output.exists())
+        self.assertFalse(descendant_output.exists())
 
     def test_io_paths_are_stored_repo_relative(self) -> None:
         wf = self.mgr.start("sr", {"SR": "SR-REL"}, "req")
