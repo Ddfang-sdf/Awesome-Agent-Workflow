@@ -21,6 +21,7 @@ from .routers.releases import build_releases_router
 from .routers.telemetry import build_telemetry_router
 from .routers.testing_telemetry import build_testing_telemetry_router
 from .services.attribution_service import AttributionService
+from .services.remote_attribution_service import RemoteAttributionService
 
 logger = logging.getLogger("aaw_telemetry.system")
 
@@ -41,9 +42,15 @@ def create_app(
     engine = engine or build_engine(settings)
     projects = projects or ProjectRegistry.load(settings.projects_file)
     if attribution_service is None:
-        from .services.mock_attribution_service import MockAttributionService
-
-        attribution_service = MockAttributionService()
+        attribution_service = RemoteAttributionService(
+            settings.attribution_service_url,
+            timeout_seconds=settings.attribution_timeout_seconds,
+            api_token=(
+                settings.attribution_api_token.get_secret_value()
+                if settings.attribution_api_token
+                else None
+            ),
+        )
     session_factory = build_session_factory(engine)
     get_session = session_dependency(session_factory)
 
@@ -53,7 +60,6 @@ def create_app(
             "Telemetry Server 已启动，可以接收请求",
             extra={"event": "service.started", "version": "0.1.0"},
         )
-        attribution_service.start_retry_scheduler(settings, projects)
         try:
             yield
         finally:
@@ -70,6 +76,7 @@ def create_app(
     app.state.log_directory = log_directory
     app.state.engine = engine
     app.state.projects = projects
+    app.state.attribution_service = attribution_service
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_bytes=settings.max_request_bytes,

@@ -1,9 +1,9 @@
-"""HTTP boundary between the telemetry backend and attribution service."""
+"""Versioned public HTTP contract for attribution requests."""
 
 from __future__ import annotations
 
-import abc
 import base64
+import binascii
 import hashlib
 import uuid
 from datetime import datetime
@@ -47,13 +47,14 @@ class DiffPayload(BaseModel):
     content_base64: str = Field(min_length=1)
     statistics: dict
 
-    @classmethod
-    def from_bytes(cls, content: bytes, statistics: dict) -> DiffPayload:
-        return cls(
-            sha256=hashlib.sha256(content).hexdigest(),
-            content_base64=base64.b64encode(content).decode("ascii"),
-            statistics=statistics,
-        )
+    def decode_and_verify(self) -> bytes:
+        try:
+            content = base64.b64decode(self.content_base64, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise ValueError("content_base64 is not valid base64") from exc
+        if hashlib.sha256(content).hexdigest() != self.sha256:
+            raise ValueError("diff content does not match sha256")
+        return content
 
 
 class AttributionRequest(BaseModel):
@@ -65,6 +66,11 @@ class AttributionRequest(BaseModel):
     development: DevelopmentContext
     telemetry: TelemetryContext
     diff: DiffPayload
+
+    @model_validator(mode="after")
+    def validate_diff(self) -> AttributionRequest:
+        self.diff.decode_and_verify()
+        return self
 
 
 class AttributionResult(BaseModel):
@@ -88,21 +94,3 @@ class AttributionResult(BaseModel):
     algorithm_version: str = Field(min_length=1, max_length=64)
     diff_rule_version: str = Field(min_length=1, max_length=64)
     matched_at: datetime
-
-    @model_validator(mode="after")
-    def validate_line_counts(self) -> AttributionResult:
-        if self.attributed_lines_90 > self.attributed_lines_80:
-            raise ValueError("attributed_lines_90 must not exceed attributed_lines_80")
-        if self.attributed_lines_80 > self.dev_effective_lines:
-            raise ValueError("attributed_lines_80 must not exceed dev_effective_lines")
-        return self
-
-
-class AttributionServiceError(RuntimeError):
-    """A remote attribution call failed or returned an invalid contract."""
-
-
-class AttributionService(abc.ABC):
-    @abc.abstractmethod
-    def attribute(self, request: AttributionRequest) -> AttributionResult:
-        """Calculate attribution without accessing telemetry persistence."""

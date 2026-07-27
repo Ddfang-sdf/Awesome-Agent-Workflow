@@ -5,6 +5,8 @@ import uuid
 
 from conftest import DIFF, MESSAGE_ID, WORKFLOW_ID, message, sync, upload_diff
 
+from aaw_telemetry.services.attribution_service import AttributionServiceError
+
 
 def put_diff(client, payload: dict, content: bytes = DIFF):
     return client.put(
@@ -46,6 +48,35 @@ def test_repeated_upload_of_the_same_diff_is_idempotent(client):
     first_body.pop("request_id")
     second_body.pop("request_id")
     assert first_body == second_body
+
+
+def test_attribution_outage_does_not_rollback_diff_and_same_upload_retries(
+    client,
+    monkeypatch,
+):
+    payload = message()
+    sync(client, payload)
+    service = client.app.state.attribution_service
+    original = service.attribute
+
+    def fail_attribution(_):
+        raise AttributionServiceError("unavailable")
+
+    monkeypatch.setattr(service, "attribute", fail_attribution)
+
+    confirmed = put_diff(client, payload)
+
+    assert confirmed.status_code == 200
+    detail = client.get(f"/api/v1/workflows/{WORKFLOW_ID}").json()
+    assert detail["steps"][0]["file_status"] == "confirmed"
+    assert detail["steps"][0]["attribution_status"] == "failed"
+
+    monkeypatch.setattr(service, "attribute", original)
+    retried = put_diff(client, payload)
+    detail = client.get(f"/api/v1/workflows/{WORKFLOW_ID}").json()
+
+    assert retried.status_code == 200
+    assert detail["steps"][0]["attribution_status"] == "finalized_match"
 
 
 def test_upload_requires_an_existing_message(client):

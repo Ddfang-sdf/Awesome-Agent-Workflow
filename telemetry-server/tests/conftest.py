@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,11 @@ from sqlalchemy.pool import StaticPool
 from aaw_telemetry.config import ProjectEntry, ProjectRegistry, ProjectsDocument, Settings
 from aaw_telemetry.database import Base
 from aaw_telemetry.main import create_app
-from aaw_telemetry.services.mock_attribution_service import MockAttributionService
+from aaw_telemetry.services.attribution_service import (
+    AttributionRequest,
+    AttributionResult,
+    AttributionService,
+)
 
 WORKFLOW_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 MESSAGE_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
@@ -30,6 +35,31 @@ DIFF = (
     b"+new line\n"
     b"+second line\n"
 )
+
+
+class StubAttributionService(AttributionService):
+    def attribute(self, request: AttributionRequest) -> AttributionResult:
+        total = int(request.diff.statistics.get("total_effective_lines", 0))
+        has_match = total > 0
+        mock_iid = str((request.request_id.int % 900_000) + 100_000) if has_match else None
+        return AttributionResult(
+            request_id=request.request_id,
+            result_status="finalized_match" if has_match else "finalized_no_match",
+            dev_effective_lines=total,
+            attributed_lines_80=total,
+            attributed_lines_90=total,
+            confidence=0.8 if has_match else 0.0,
+            quality_flags=["mock_attribution", "external_service"],
+            matched_mr_iid=mock_iid,
+            matched_mr_url=(
+                f"https://example.invalid/mock/merge_requests/{mock_iid}"
+                if mock_iid
+                else None
+            ),
+            algorithm_version="mock-v1",
+            diff_rule_version="unified-diff-additions-v1",
+            matched_at=datetime.now(UTC),
+        )
 
 
 @pytest.fixture
@@ -69,7 +99,7 @@ def client(projects: ProjectRegistry, tmp_path) -> Iterator[TestClient]:
         max_patch_bytes=2 * 1024 * 1024,
         upload_session_seconds=3600,
     )
-    attribution_service = MockAttributionService()
+    attribution_service = StubAttributionService()
     app = create_app(
         settings,
         engine=engine,
