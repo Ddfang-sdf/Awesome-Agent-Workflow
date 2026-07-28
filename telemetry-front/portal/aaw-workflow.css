@@ -753,13 +753,25 @@ h1 em, h2 em { color: var(--green); font-style: normal; }
 .design-chain > header small { color: var(--green); font: 700 7px var(--mono); letter-spacing: .09em; }
 .design-chain > header b { display: block; margin-top: 3px; font: 600 11px var(--display); }
 .design-chain > header em {
+  position: relative;
   flex: 0 0 auto;
-  padding: 5px 8px;
+  padding: 5px 8px 5px 20px;
   border-radius: 5px;
   color: var(--red);
   background: var(--red-soft);
   font: 700 7px var(--mono);
   font-style: normal;
+}
+.design-chain > header em::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-bottom: 1.5px solid currentColor;
+  border-left: 1.5px solid currentColor;
+  transform: translateY(-50%) rotate(45deg);
 }
 .design-track {
   display: grid;
@@ -792,12 +804,16 @@ h1 em, h2 em { color: var(--green); font-style: normal; }
   background: var(--green);
 }
 .collab-step + .collab-step::after {
-  content: "›";
+  content: "";
   position: absolute;
-  left: -8px;
-  top: calc(50% - 9px);
-  color: var(--green);
-  font: 700 14px var(--mono);
+  left: -9px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-top: 1.5px solid var(--green);
+  border-right: 1.5px solid var(--green);
+  transform: translateY(-50%) rotate(45deg);
+  pointer-events: none;
 }
 .collab-step > span {
   position: absolute;
@@ -869,7 +885,34 @@ h1 em, h2 em { color: var(--green); font-style: normal; }
   color: var(--orange);
   background: var(--orange-soft);
 }
-.repo-transfer > span { position: absolute; top: -23px; font: 700 24px var(--mono); animation: transferPulse 2.2s ease-in-out infinite; }
+.repo-transfer > span {
+  position: absolute;
+  top: -24px;
+  width: 14px;
+  height: 26px;
+  animation: transferPulse 2.2s ease-in-out infinite;
+}
+.repo-transfer > span::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1.5px;
+  height: 19px;
+  background: currentColor;
+  transform: translateX(-50%);
+}
+.repo-transfer > span::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateX(-50%) rotate(45deg);
+}
 .repo-transfer b { font: 700 9px var(--mono); letter-spacing: .08em; }
 .repo-transfer small { margin-top: 4px; color: var(--soft); font-size: 7px; text-align: center; }
 .repo-transfer--out { color: var(--blue); border-color: var(--blue); background: var(--blue-soft); }
@@ -955,11 +998,15 @@ h1 em, h2 em { color: var(--green); font-style: normal; }
 }
 .handoff-feedback li { position: relative; color: var(--soft); font-size: 9px; }
 .handoff-feedback li + li::before {
-  content: "←";
+  content: "";
   position: absolute;
-  left: -14px;
-  color: var(--red);
-  font: 700 11px var(--mono);
+  left: -12px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-bottom: 1.5px solid var(--red);
+  border-left: 1.5px solid var(--red);
+  transform: translateY(-50%) rotate(45deg);
 }
 .handoff-feedback li span { display: block; margin-bottom: 5px; color: var(--red); font: 700 7px var(--mono); }
 .handoff-principles {
@@ -1029,14 +1076,19 @@ h1 em, h2 em { color: var(--green); font-style: normal; }
 .return-rail::before, .return-rail::after {
   content: "";
   position: absolute;
-  right: -7px;
-  width: 9px;
-  height: 9px;
+  right: -5px;
+  width: 7px;
+  height: 7px;
   border-top: 2px solid var(--green);
   border-right: 2px solid var(--green);
 }
-.return-rail::before { top: -6px; transform: rotate(45deg); }
-.return-rail::after { bottom: -6px; transform: rotate(-45deg); }
+.return-rail::before { top: -5px; transform: rotate(45deg); }
+.return-rail::after {
+  bottom: -5px;
+  border-top: 0;
+  border-bottom: 2px solid var(--green);
+  transform: rotate(-45deg);
+}
 .return-rail span {
   position: absolute;
   left: -2px;
@@ -1095,12 +1147,15 @@ h1 em, h2 em { color: var(--green); font-style: normal; }
   pointer-events: none;
 }
 .phase-flow > * + *::after {
-  content: "›";
+  content: "";
   position: absolute;
-  left: -8px;
-  top: calc(50% - 9px);
-  color: var(--green);
-  font: 700 15px var(--mono);
+  left: -9px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-top: 1.5px solid var(--green);
+  border-right: 1.5px solid var(--green);
+  transform: translateY(-50%) rotate(45deg);
   pointer-events: none;
 }
 .flow-node, .entry-port, .source-node, .delivery-node, .parallel-badge {
@@ -1181,6 +1236,17 @@ h1 em, h2 em { color: var(--green); font-style: normal; }
   border: 1px solid var(--red);
   border-top: 0;
   border-radius: 0 0 7px 7px;
+}
+.fix-loop::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: -8px;
+  width: 5px;
+  height: 5px;
+  border-bottom: 1.5px solid var(--red);
+  border-left: 1.5px solid var(--red);
+  transform: rotate(45deg);
 }
 .source-node, .delivery-node {
   min-height: 88px;
@@ -1528,9 +1594,12 @@ footer {
     height: 10px;
   }
   .design-track .collab-step + .collab-step::after {
-    content: "↓";
-    left: calc(50% - 5px);
-    top: -9px;
+    left: 50%;
+    top: -8px;
+    border-top: 0;
+    border-right: 1.5px solid var(--green);
+    border-bottom: 1.5px solid var(--green);
+    transform: translateX(-50%) rotate(45deg);
   }
   .collab-step { min-height: 130px; }
   .collab-step + .collab-step::before {
@@ -1540,16 +1609,26 @@ footer {
     height: 18px;
   }
   .collab-step + .collab-step::after {
-    content: "↓";
-    left: calc(50% - 5px);
-    top: -14px;
+    left: 50%;
+    top: -15px;
+    border-top: 0;
+    border-right: 1.5px solid var(--green);
+    border-bottom: 1.5px solid var(--green);
+    transform: translateX(-50%) rotate(45deg);
   }
   .repo-track { grid-template-columns: 1fr; gap: 24px; }
   .repo-transfer { min-height: 70px; }
   .repo-transfer--out > span { bottom: -25px; }
   .repo-hub ul { grid-template-columns: 1fr; }
   .handoff-feedback ol { grid-template-columns: 1fr; gap: 13px; }
-  .handoff-feedback li + li::before { content: "↑"; left: 0; top: -13px; }
+  .handoff-feedback li + li::before {
+    left: 0;
+    top: -10px;
+    border-bottom: 0;
+    border-top: 1.5px solid var(--red);
+    border-left: 1.5px solid var(--red);
+    transform: rotate(45deg);
+  }
   .handoff-principles { grid-template-columns: 1fr; }
   .handoff-principles article { min-height: 130px; }
   .handoff-principles article + article { border-left: 0; border-top: 1px solid var(--line); }
