@@ -6,7 +6,7 @@
 <meta name="description" content="AAW 让需求描述、SR 设计、AR 设计与代码实现形成可追溯的信息链，减少人与人之间的信息传递失真。">
 <title>AAW 工作流介绍 · Adoption Studio</title>
 <link rel="stylesheet" href="vendor/fonts.css">
-<link rel="stylesheet" href="aaw-workflow.css?v=20260727-10">
+<link rel="stylesheet" href="aaw-workflow.css?v=20260728-11">
 <script defer src="aaw-workflow.js?v=20260727-5"></script>
 </head>
 <body>
@@ -179,7 +179,7 @@
         </header>
         <div class="design-chains">
           <section class="design-chain" aria-label="SR 需求设计链">
-            <header><div><small>CHAIN A · SR</small><b>从原始意图到可拆分的系统需求</b></div><em>门禁失败 / 阻塞 ↩ 返回 SR 设计</em></header>
+            <header><div><small>CHAIN A · SR</small><b>从原始意图到可拆分的系统需求</b></div><em>门禁失败 / 阻塞 · 返回 SR 设计</em></header>
             <div class="design-track design-track--sr">
               <article class="collab-step">
                 <span>01</span><small>CAPTURE</small>
@@ -215,7 +215,7 @@
           </section>
 
           <section class="design-chain design-chain--handoff" aria-label="AR 澄清与交接链">
-            <header><div><small>CHAIN B · AR HANDOFF</small><b>从单次变更到可信交接包</b></div><em>存在歧义 / 未确认 ↩ 停留在 AR 澄清</em></header>
+            <header><div><small>CHAIN B · AR HANDOFF</small><b>从单次变更到可信交接包</b></div><em>存在歧义 / 未确认 · 停留在 AR 澄清</em></header>
             <div class="design-track design-track--ar">
               <article class="collab-step collab-step--human">
                 <span>06</span><small>AR-CLARIFY</small>
@@ -246,7 +246,7 @@
           <div><small>SHARED BASELINE</small><h3 id="role-repository">业务代码仓</h3><p>跨角色唯一共享事实源</p></div>
         </header>
         <div class="repo-track">
-          <div class="repo-transfer repo-transfer--in"><span>↓</span><b>PUSH</b><small>已评审上下文</small></div>
+          <div class="repo-transfer repo-transfer--in"><span aria-hidden="true"></span><b>PUSH</b><small>已评审上下文</small></div>
           <article class="repo-hub">
             <div class="repo-hub__title">
               <span aria-hidden="true">◆</span>
@@ -258,7 +258,7 @@
               <li><code>.sdd/&lt;SR&gt;/workflow.yaml</code><span>工作流进度</span></li>
             </ul>
           </article>
-          <div class="repo-transfer repo-transfer--out"><span>↓</span><b>PULL</b><small>同一份可信基线</small></div>
+          <div class="repo-transfer repo-transfer--out"><span aria-hidden="true"></span><b>PULL</b><small>同一份可信基线</small></div>
         </div>
       </section>
 
@@ -350,7 +350,7 @@
             </button>
             <button class="flow-node flow-node--gate" type="button" data-node="sr-design-gate" aria-pressed="false">
               <span class="node-id">03</span><small>sr-design-gate</small><b>SR 设计门禁</b><em class="node-tag node-tag--gate">GATE</em>
-              <span class="fix-loop">未通过 ↩ 修正 SR</span>
+              <span class="fix-loop">未通过 · 修正 SR</span>
             </button>
             <button class="flow-node flow-node--split" type="button" data-node="ar-split" aria-pressed="false">
               <span class="node-id">04</span><small>ar-split</small><b>选择 AR 拆分方式</b><em class="node-tag node-tag--parallel">分支</em>
@@ -389,7 +389,7 @@
             </button>
             <button class="flow-node flow-node--gate" type="button" data-node="module-design-gate" aria-pressed="false">
               <span class="node-id">11</span><small>module-design-gate</small><b>模块设计门禁</b><em class="node-tag node-tag--gate">GATE</em>
-              <span class="fix-loop">未通过 ↩ 原地修正 08—10</span>
+              <span class="fix-loop">未通过 · 原地修正 08—10</span>
             </button>
           </div>
         </section>
