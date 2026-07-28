@@ -87,12 +87,16 @@ class DoneCliTests(CliTestBase):
         self.assertTrue(result["telemetry"]["error"])
 
     def test_human_output_reports_confirm_flow_and_generated_successors(self) -> None:
-        self.start_sr("SR-DONEOUT")
+        self.start_ar("SR-DONEOUT")
         self.run_cli("next", "--sr", "SR-DONEOUT", "--json")
-        (self.cwd / ".sdd" / "software_architecture.md").write_text("architecture", "utf-8")
+        self.run_cli("done", "--sr", "SR-DONEOUT", "1", "--json")
+        clarify = self.cwd / ".sdd" / "SR-DONEOUT" / "AR-001" / "AR-clarify.md"
+        clarify.parent.mkdir(parents=True, exist_ok=True)
+        clarify.write_text("ar clarify", "utf-8")
+        self.run_cli("next", "--sr", "SR-DONEOUT", "--json")
 
-        done_result = self.run_cli("done", "--sr", "SR-DONEOUT", "1")
-        self.assertIn("step 1 已完成", done_result.stdout)
+        done_result = self.run_cli("done", "--sr", "SR-DONEOUT", "2")
+        self.assertIn("step 2 已完成", done_result.stdout)
         self.assertIn("等待用户确认", done_result.stdout)
         self.assertIn("user-confirm", done_result.stdout)
 

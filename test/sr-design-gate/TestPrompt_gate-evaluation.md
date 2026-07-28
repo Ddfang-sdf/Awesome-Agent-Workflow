@@ -23,7 +23,7 @@
 {
   "gate_result": "pass | fail | blocked",
   "recommendation": "...",
-  "report": "路径或 null",
+  "report": "门禁报告路径",
   "summary": {
     "unqualified_dimensions": 0,
     "p0_conflicts": 0,
@@ -35,7 +35,7 @@
 }
 ```
 
-若存在任意发现，按结果模板在 `{WORKDIR}/SR-design-gate.md` 写入报告；首次零问题通过时
-不得创建该文件。完成后停止，不要继续 AR 拆分。
+每一轮检查都要按结果模板在 `{WORKDIR}/SR-design-gate.md` 写入报告；零问题通过时同样生成，
+至少写入 summary 六项计数和原始需求反查结论。完成后停止，不要继续 AR 拆分。
 
 === END PROMPT ===

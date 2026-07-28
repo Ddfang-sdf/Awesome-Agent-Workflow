@@ -73,9 +73,12 @@ Write a minimal AGENTS.md according to the .sdd/AGENTS.md.
 ### Phase 6 **update '目录'**
 Update section '目录' with correct line numbers after all content is assembled. Do NOT fill in placeholders.
 
-### Phase 7 Remind user to manually review key content
+### Phase 7 Confirm key content with the user
 
-Output the following reminder to the user:
+If this run created or modified `.sdd/software_architecture.md`, output the reminder
+below and wait for the user to confirm the listed items before completing. If the file
+already existed and was not modified in this run, output the reminder for reference and
+continue without waiting.
 
 ```
 ⚠️ **Important Reminder**
@@ -95,3 +98,17 @@ Auto-generated documents from repo-init have low accuracy. Please manually revie
 
 Please review each item before proceeding with subsequent workflow steps.
 ```
+
+`.sdd/software_architecture.md` is the architecture baseline for the entire downstream
+workflow: `module-asis-analysis` treats it as the only source of module boundaries and
+aborts when it is missing or conflicting. When this run generated or changed it, do not
+report completion until the user confirms the review.
+
+## 完成后回调
+
+> 若不处于 `aaw-workflow` 编排中，请忽略此节。
+
+本 skill 由 `aaw-workflow` 编排调用。交付件生成后：
+
+1. 若本轮创建或修改了 `.sdd/software_architecture.md`，先完成 Phase 7 的用户确认，再执行工作单中的 `commands.done`。
+2. 若 `.sdd/software_architecture.md` 本轮未发生变化，直接执行 `commands.done`。

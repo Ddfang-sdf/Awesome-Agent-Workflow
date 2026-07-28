@@ -44,7 +44,7 @@ class WorkflowStudioTests(unittest.TestCase):
 
         self.assertEqual(1, len(gate_edges))
         self.assertEqual("choice", gate_edges[0]["kind"])
-        self.assertEqual("must", gate_edges[0]["user_confirm"])
+        self.assertEqual("skip", gate_edges[0]["user_confirm"])
 
     def test_config_exposes_sr_design_gate_edges(self) -> None:
         config = server.load_config()
@@ -56,7 +56,7 @@ class WorkflowStudioTests(unittest.TestCase):
         self.assertEqual("direct", design_to_gate["kind"])
         self.assertEqual("skip", design_to_gate["user_confirm"])
         self.assertEqual("choice", gate_to_split["kind"])
-        self.assertEqual("must", gate_to_split["user_confirm"])
+        self.assertEqual("skip", gate_to_split["user_confirm"])
 
     def test_config_summarizes_prompt_and_data_fields(self) -> None:
         config = server.load_config()

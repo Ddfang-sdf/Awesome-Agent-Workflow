@@ -123,12 +123,12 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self._done(wf, 2)
         return wf
 
-    def _sr_gate_pass_data(self) -> str:
+    def _sr_gate_pass_data(self, report: str = ".sdd/SR-001/SR-design-gate.md") -> str:
         return json.dumps(
             {
                 "gate_result": "pass",
                 "recommendation": "可进入 AR 拆分",
-                "report": None,
+                "report": report,
                 "summary": {
                     "unqualified_dimensions": 0,
                     "p0_conflicts": 0,
@@ -214,45 +214,40 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.mgr.mark_started(wf, 1)
         result = self.mgr.mark_done(wf, 1)
 
-        self.assertEqual("awaiting_user_confirm", result["state"])
-        self.assertEqual(0, result["generated"])
-        self.assertEqual(1, result["planned"])
-        self.assertEqual([], self.mgr.get_ready(wf))
-        pending = self.mgr.build_next_payload(wf)
-        self.assertEqual("awaiting_user_confirm", pending["status"])
-        self.assertEqual([], pending["ready"])
-        self.assertIn("user-confirm", pending["commands"]["user_confirm"])
-
-        confirmed = self.mgr.user_confirm(wf)
-
-        self.assertEqual(1, confirmed["generated"])
+        self.assertEqual(1, result["generated"])
         self.assertEqual("sr-design", self.mgr.get_ready(wf)[0].type)
 
     def test_done_waits_for_user_confirm_on_must_edge(self) -> None:
-        wf = self.mgr.start("sr", {"SR": "SR-CONFIRM"}, "req")
-        self._touch_required_outputs(wf, 1)
-        self.mgr.mark_started(wf, 1)
+        wf = self.mgr.start("ar", {"SR": "SR-CONFIRM", "AR": "AR-001", "描述": "用户管理"})
+        self._done(wf, 1)
+        self._touch_required_inputs(wf, 2)
+        self._touch_required_outputs(wf, 2)
+        self.mgr.mark_started(wf, 2)
 
-        result = self.mgr.mark_done(wf, 1)
+        result = self.mgr.mark_done(wf, 2)
 
         self.assertEqual("awaiting_user_confirm", result["state"])
         self.assertEqual(0, result["generated"])
         self.assertEqual(1, result["planned"])
-        self.assertTrue(wf.get_step(1).finished)
-        self.assertEqual([], wf.get_step(1).next)
-        self.assertEqual(1, len(wf.steps))
+        self.assertTrue(wf.get_step(2).finished)
+        self.assertEqual([], wf.get_step(2).next)
+        self.assertEqual(2, len(wf.steps))
         self.assertEqual([], self.mgr.get_ready(wf))
 
         payload = self.mgr.build_next_payload(wf)
         self.assertEqual("awaiting_user_confirm", payload["status"])
         self.assertEqual([], payload["ready"])
-        self.assertEqual("sr-design", payload["pending_user_confirm"]["planned_next"][0]["type"])
+        self.assertIn("user-confirm", payload["commands"]["user_confirm"])
+        self.assertEqual(
+            "module-boundary-design",
+            payload["pending_user_confirm"]["planned_next"][0]["type"],
+        )
 
         confirmed = self.mgr.user_confirm(wf)
 
         self.assertEqual(1, confirmed["generated"])
-        self.assertEqual([2], wf.get_step(1).next)
-        self.assertEqual("sr-design", self.mgr.get_ready(wf)[0].type)
+        self.assertEqual([3], wf.get_step(2).next)
+        self.assertEqual("module-boundary-design", self.mgr.get_ready(wf)[0].type)
 
     def test_step_execution_timestamps_are_persisted_in_workflow_yaml(self) -> None:
         wf = self.mgr.start("sr", {"SR": "SR-TIMESTAMPS"}, "req")
@@ -393,7 +388,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertTrue(order["commands"]["done_inline"].endswith("done --sr SR-001 4 --data '<JSON>' --json"))
         self.assertEqual("aaw done --sr SR-001 4 --data '<JSON>' --json", order["commands"]["legacy_done"])
 
-    def test_sr_design_generates_gate_with_optional_report_without_confirmation(self) -> None:
+    def test_sr_design_generates_gate_with_required_report_without_confirmation(self) -> None:
         wf = self.mgr.start("sr", {"SR": "SR-GATE"}, "req")
         self._done(wf, 1)
         self.mgr.mark_started(wf, 2)
@@ -416,34 +411,43 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         )
         self.assertTrue(all(item["required"] for item in gate.input))
         self.assertEqual(".sdd/SR-GATE/SR-design-gate.md", gate.output[0]["path"])
-        self.assertFalse(gate.output[0]["required"])
+        self.assertTrue(gate.output[0]["required"])
         deliverables = self.mgr.check_deliverables(gate)
-        self.assertEqual([".sdd/SR-GATE/SR-design-gate.md"], deliverables["optional"])
+        self.assertEqual([".sdd/SR-GATE/SR-design-gate.md"], deliverables["missing_required"])
         self.assertFalse(deliverables["can_skip"])
         report = self._abs(gate.output[0]["path"])
         report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text("historical gate report", "utf-8")
-        self.assertFalse(self.mgr.check_deliverables(gate)["can_skip"])
+        report.write_text("gate report", "utf-8")
+        self.assertTrue(self.mgr.check_deliverables(gate)["can_skip"])
         gate_order = self.mgr.build_next_payload(wf)["ready"][0]
         self.assertIn("summary", gate_order["data"]["fields"])
 
-    def test_sr_gate_pass_waits_for_user_confirmation_before_ar_split(self) -> None:
+    def test_sr_gate_pass_generates_ar_split_without_confirmation(self) -> None:
         wf = self._workflow_at_sr_gate("SR-GATE-PASS")
         self.mgr.mark_started(wf, 3)
         gate = wf.get_step(3)
         assert gate is not None
         report = self._abs(gate.output[0]["path"])
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("gate report", "utf-8")
 
-        result = self.mgr.mark_done(wf, 3, self._sr_gate_pass_data())
+        result = self.mgr.mark_done(wf, 3, self._sr_gate_pass_data(gate.output[0]["path"]))
 
-        self.assertFalse(report.exists())
-        self.assertEqual("awaiting_user_confirm", result["state"])
-        self.assertEqual([], self.mgr.get_ready(wf))
-        pending = self.mgr.build_next_payload(wf)["pending_user_confirm"]
-        self.assertEqual("ar-split", pending["planned_next"][0]["type"])
-        confirmed = self.mgr.user_confirm(wf)
-        self.assertEqual(1, confirmed["generated"])
+        self.assertEqual(1, result["generated"])
+        self.assertNotEqual("awaiting_user_confirm", result.get("state"))
         self.assertEqual("ar-split", self.mgr.get_ready(wf)[0].type)
+
+    def test_sr_gate_pass_requires_report_deliverable(self) -> None:
+        wf = self._workflow_at_sr_gate("SR-GATE-NOREPORT")
+        self.mgr.mark_started(wf, 3)
+        gate = wf.get_step(3)
+        assert gate is not None
+        self.assertFalse(self._abs(gate.output[0]["path"]).exists())
+
+        with self.assertRaises(WorkflowError):
+            self.mgr.mark_done(wf, 3, self._sr_gate_pass_data(gate.output[0]["path"]))
+
+        self.assertFalse(gate.finished)
 
     def test_sr_gate_fail_and_blocked_keep_gate_unfinished(self) -> None:
         for gate_result, expected_message in (("fail", "门禁不通过"), ("blocked", "门禁阻塞")):
@@ -534,13 +538,6 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
-            subprocess.run(
-                [sys.executable, str(AAW_SCRIPT), "user-confirm", "--sr", "SR-DATAFILE", "--json"],
-                cwd=cwd,
-                check=True,
-                text=True,
-                capture_output=True,
-            )
             (cwd / ".sdd" / "SR-DATAFILE" / "SR-design.md").write_text("sr design", "utf-8")
             subprocess.run(
                 [sys.executable, str(AAW_SCRIPT), "next", "--sr", "SR-DATAFILE", "--json"],
@@ -557,7 +554,11 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
                 capture_output=True,
             )
             gate_data_file = cwd / "gate.json"
-            gate_data_file.write_text(self._sr_gate_pass_data(), "utf-8-sig")
+            gate_report = cwd / ".sdd" / "SR-DATAFILE" / "SR-design-gate.md"
+            gate_report.write_text("gate report", "utf-8")
+            gate_data_file.write_text(
+                self._sr_gate_pass_data(".sdd/SR-DATAFILE/SR-design-gate.md"), "utf-8-sig"
+            )
             subprocess.run(
                 [sys.executable, str(AAW_SCRIPT), "next", "--sr", "SR-DATAFILE", "--json"],
                 cwd=cwd,
@@ -577,13 +578,6 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
                     str(gate_data_file),
                     "--json",
                 ],
-                cwd=cwd,
-                check=True,
-                text=True,
-                capture_output=True,
-            )
-            subprocess.run(
-                [sys.executable, str(AAW_SCRIPT), "user-confirm", "--sr", "SR-DATAFILE", "--json"],
                 cwd=cwd,
                 check=True,
                 text=True,

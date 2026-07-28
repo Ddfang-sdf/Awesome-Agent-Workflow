@@ -346,7 +346,7 @@ Gate 阶段有偷懒风险，必须显式使用 todo-list 类工具跟踪检查�
 本 skill 由 `aaw-workflow` 编排调用。交付件生成后：
 
 1. 将门禁结果写入工作单 `output` 指定的门禁结果文件。
-2. 若门禁结论为 `通过`，构造数据文件并执行工作单中的 `commands.done`；如果返回 `state=awaiting_user_confirm`，停止并让 `aaw-workflow` 询问用户是否放行到 `task-split`：
+2. 若门禁结论为 `通过`，构造数据文件并执行工作单中的 `commands.done`。执行前先向用户输出门禁结论摘要和门禁结果文件路径；这只是告知，不要等待用户答复，也不要因此暂停推进到 `task-split`：
 
    ```json
    {
