@@ -101,7 +101,7 @@ CLI 会在 `next --json` 工作单里返回渲染后的 `prompt.rendered`。`ski
 sr-design:
   kind: direct
   to: ar-split
-  user_confirm: must
+  user_confirm: skip
 ```
 
 ### foreach：按 --data 数组分叉
@@ -110,7 +110,7 @@ sr-design:
 task-split:
   kind: foreach
   to: task-dev
-  user_confirm: must
+  user_confirm: skip
   foreach: data.tasks              # 指向 --data JSON 中的数组
   vars:                            # 每个数组项生成一个后继，注入变量
     序号: "{index}"                # 从 1 开始
@@ -146,7 +146,7 @@ module-design-gate:
   choices:
     - when: data.gate_result == 'pass'
       to: task-split
-      user_confirm: must
+      user_confirm: skip
   reject:
     - when: data.gate_result == 'fail'
       message: "门禁不通过，不能进入 task-split；原地修正后重新执行 gate。"
@@ -401,4 +401,4 @@ uv run pytest test/aaw_workflow/
 - **轻环节用 prompt，重环节才建 skill**：`execution: prompt` 成本最低；只有当指令复杂、需要模板/参考资料/跨项目复用时才建独立 skill 目录。
 - **门禁型节点用 choice + reject**：把"不通过"建模为 reject 而不是下游分支，保持失败语义清晰（参考 `module-design-gate`）。
 - **分叉数据加 `item_validation`**：Agent 回填数组时容易带前缀/后缀，`reject_pattern` 能在 `done` 前拦截，避免下游生成畸形文件名。
-- **关键边界 `user_confirm: must`**：进入编码实现、基线确认等不可逆边界保留人工确认。
+- **确认放在有内容可看的地方**：`user_confirm` 只是边上的放行开关，用户在该时点看不到成果物。需要人工把关时，优先让上游 skill 展示成果并在自己内部确认；只有当下游没有任何展示环节、且边界不可逆时，才用 `user_confirm: must`（当前内置流程仅 `ar-clarify → module-boundary-design` 保留）。

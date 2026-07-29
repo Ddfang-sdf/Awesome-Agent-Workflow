@@ -106,21 +106,35 @@ class CliTestBase(unittest.TestCase):
     def user_confirm(self, sr: str) -> dict:
         return json.loads(self.run_cli("user-confirm", "--sr", sr, "--json").stdout)
 
-    def complete_step_1(self, sr: str) -> dict:
-        """step 1 (sr-init) is a skill step: needs `next` first plus its output file.
+    def start_ar(self, sr: str, ar: str = "AR-001", title: str = "用户管理") -> dict:
+        (self.cwd / ".sdd").mkdir(parents=True, exist_ok=True)
+        (self.cwd / ".sdd" / "software_architecture.md").write_text("architecture", "utf-8")
+        result = self.run_cli(
+            "start", "--entry", "ar", "--sr", sr,
+            "--var", f"AR={ar}", "--var", f"TITLE={title}", "--json",
+        )
+        return json.loads(result.stdout)
 
-        The sr-init -> sr-design edge is `user_confirm: must`, so the successor is
-        released via auto user-confirm; `generated`/`next` in the returned done
-        payload are updated from the confirm result.
+    def advance_to_ar_clarify_done(self, sr: str, ar: str = "AR-001") -> dict:
+        """Finish steps 1-2 of the ar entry.
+
+        The ar-clarify -> module-boundary-design edge is `user_confirm: must`,
+        so `done` on step 2 leaves the workflow awaiting confirmation.
         """
+        self.start_ar(sr, ar)
+        self.run_cli("next", "--sr", sr, "--json")
+        self.run_cli("done", "--sr", sr, "1", "--json")
+        clarify = self.cwd / ".sdd" / sr / ar / "AR-clarify.md"
+        clarify.parent.mkdir(parents=True, exist_ok=True)
+        clarify.write_text("ar clarify", "utf-8")
+        self.run_cli("next", "--sr", sr, "--json")
+        return json.loads(self.run_cli("done", "--sr", sr, "2", "--json").stdout)
+
+    def complete_step_1(self, sr: str) -> dict:
+        """step 1 (sr-init) is a skill step: needs `next` first plus its output file."""
         self.run_cli("next", "--sr", sr, "--json")
         (self.cwd / ".sdd" / "software_architecture.md").write_text("architecture", "utf-8")
-        result = json.loads(self.run_cli("done", "--sr", sr, "1", "--json").stdout)
-        if result.get("state") == "awaiting_user_confirm":
-            confirm = self.user_confirm(sr)
-            result["generated"] = confirm["generated"]
-            result["next"] = confirm["next"]
-        return result
+        return json.loads(self.run_cli("done", "--sr", sr, "1", "--json").stdout)
 
     def advance_to_ar_split(self, sr: str) -> None:
         """Finish steps 1-3 so step 4 (ar-split, requires --data) is ready.
@@ -134,6 +148,8 @@ class CliTestBase(unittest.TestCase):
         self.run_cli("next", "--sr", sr, "--json")
         self.run_cli("done", "--sr", sr, "2", "--json")
         self.run_cli("next", "--sr", sr, "--json")
+        gate_report = f".sdd/{sr}/SR-design-gate.md"
+        (self.cwd / gate_report).write_text("gate report", "utf-8")
         self.run_cli(
             "done",
             "--sr",
@@ -144,7 +160,7 @@ class CliTestBase(unittest.TestCase):
                 {
                     "gate_result": "pass",
                     "recommendation": "可进入 AR 拆分",
-                    "report": None,
+                    "report": gate_report,
                     "summary": {
                         "unqualified_dimensions": 0,
                         "p0_conflicts": 0,
@@ -158,7 +174,6 @@ class CliTestBase(unittest.TestCase):
             ),
             "--json",
         )
-        self.user_confirm(sr)
         self.run_cli("next", "--sr", sr, "--json")
 
     def status_json(self, sr: str) -> dict:
