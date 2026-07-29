@@ -1,6 +1,31 @@
 (() => {
   "use strict";
 
+  const pageScaleRoot = document.querySelector(".aaw-page-scale");
+  const baseViewportWidth = 1920;
+  const maxPageScale = 2;
+  let scaleFrame = 0;
+
+  function updatePageScale() {
+    if (!pageScaleRoot) return;
+
+    const viewportWidth = document.documentElement.clientWidth;
+    const scale = Math.min(maxPageScale, Math.max(1, viewportWidth / baseViewportWidth));
+
+    pageScaleRoot.style.zoom = String(scale);
+    pageScaleRoot.style.width = `${viewportWidth / scale}px`;
+    pageScaleRoot.style.setProperty("--aaw-layout-height", `${window.innerHeight / scale}px`);
+    document.documentElement.style.setProperty("--aaw-page-scale", String(scale));
+  }
+
+  function schedulePageScaleUpdate() {
+    window.cancelAnimationFrame(scaleFrame);
+    scaleFrame = window.requestAnimationFrame(updatePageScale);
+  }
+
+  updatePageScale();
+  window.addEventListener("resize", schedulePageScaleUpdate, { passive: true });
+
   const nodeDetails = {
     "sr-init": {
       index: "01",

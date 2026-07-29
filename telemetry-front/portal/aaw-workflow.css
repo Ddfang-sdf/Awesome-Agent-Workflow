@@ -31,6 +31,11 @@ body {
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
+.aaw-page-scale {
+  width: 100%;
+  margin-inline: auto;
+  zoom: 1;
+}
 button, a { -webkit-tap-highlight-color: transparent; }
 button { font: inherit; }
 code { font-family: var(--mono); }
@@ -109,7 +114,7 @@ code { font-family: var(--mono); }
 
 .hero {
   max-width: 1320px;
-  min-height: calc(100vh - 76px);
+  min-height: calc(var(--aaw-layout-height, 100vh) - 76px);
   margin: auto;
   padding: 24px clamp(22px, 4vw, 54px);
   display: grid;
