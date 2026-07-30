@@ -23,6 +23,7 @@ from .routers.telemetry import build_telemetry_router
 from .routers.testing_telemetry import build_testing_telemetry_router
 from .services.attribution_scheduler import AttributionScheduler
 from .services.attribution_service import AttributionService
+from .services.issue_images import IssueImageJanitor
 from .services.remote_attribution_service import RemoteAttributionService
 
 logger = logging.getLogger("aaw_telemetry.system")
@@ -61,12 +62,17 @@ def create_app(
         projects,
         attribution_service,
     )
+    issue_image_janitor = IssueImageJanitor(session_factory, settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         scheduler_task = asyncio.create_task(
             attribution_scheduler.run(),
             name="attribution-scheduler",
+        )
+        image_cleanup_task = asyncio.create_task(
+            issue_image_janitor.run(),
+            name="issue-image-janitor",
         )
         logger.info(
             "Telemetry Server 已启动，可以接收请求",
@@ -76,8 +82,9 @@ def create_app(
             yield
         finally:
             attribution_scheduler.stop()
+            issue_image_janitor.stop()
             try:
-                await scheduler_task
+                await asyncio.gather(scheduler_task, image_cleanup_task)
             finally:
                 close_attribution_service = getattr(attribution_service, "close", None)
                 if close_attribution_service is not None:
@@ -97,10 +104,12 @@ def create_app(
     app.state.projects = projects
     app.state.attribution_service = attribution_service
     app.state.attribution_scheduler = attribution_scheduler
+    app.state.issue_image_janitor = issue_image_janitor
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_bytes=settings.max_request_bytes,
         max_object_bytes=settings.max_patch_bytes,
+        max_issue_image_bytes=settings.issue_image_max_bytes,
     )
     app.add_middleware(RequestContextMiddleware)
     app.include_router(build_telemetry_router(get_session, projects, settings))
@@ -111,7 +120,7 @@ def create_app(
             get_session, projects, prefix="/api/v1/testing", workflow_kind="testing"
         )
     )
-    app.include_router(build_issues_router(get_session))
+    app.include_router(build_issues_router(get_session, settings))
     app.include_router(
         build_objects_router(
             get_session,

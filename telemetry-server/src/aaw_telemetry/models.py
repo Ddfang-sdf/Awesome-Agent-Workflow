@@ -282,6 +282,8 @@ class Issue(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    description_doc: Mapped[dict | None] = mapped_column(JSON)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     reporter: Mapped[str] = mapped_column(String(100), nullable=False)
     assignee: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="todo")
@@ -299,6 +301,7 @@ class Issue(Base):
     activities: Mapped[list[IssueActivity]] = relationship(
         back_populates="issue", cascade="all, delete-orphan", order_by="IssueActivity.created_at"
     )
+    images: Mapped[list[IssueImage]] = relationship(back_populates="issue")
 
 
 class IssueActivity(Base):
@@ -314,3 +317,39 @@ class IssueActivity(Base):
     created_at: Mapped[datetime] = mapped_column(MILLISECOND_DATETIME, nullable=False)
 
     issue: Mapped[Issue] = relationship(back_populates="activities")
+
+
+class IssueImage(Base):
+    """A normalized raster image temporarily uploaded or bound to one issue."""
+
+    __tablename__ = "issue_image"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('temporary', 'bound', 'pending_delete')",
+            name="ck_issue_image_status",
+        ),
+        CheckConstraint("size_bytes > 0", name="ck_issue_image_size_positive"),
+        CheckConstraint("width > 0 AND height > 0", name="ck_issue_image_dimensions_positive"),
+        Index("ix_issue_image_status_created", "status", "created_at"),
+        Index("ix_issue_image_delete_after", "delete_after"),
+        Index("ix_issue_image_issue", "issue_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    issue_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("issue.id", ondelete="SET NULL")
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="temporary")
+    media_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    preview_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    full_object_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    preview_object_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(MILLISECOND_DATETIME, nullable=False)
+    bound_at: Mapped[datetime | None] = mapped_column(MILLISECOND_DATETIME)
+    delete_after: Mapped[datetime | None] = mapped_column(MILLISECOND_DATETIME)
+
+    issue: Mapped[Issue | None] = relationship(back_populates="images")

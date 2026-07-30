@@ -11,6 +11,7 @@ AAW 工作流遥测采集与管理员统计服务。实现范围以仓库根目�
 - 接收并确认 CLI 生成的原始 Diff；对象所有者是对应 Step 的 `message_id`。
 - Diff 确认后计算 MVP 代码统计，并持久化明确标记的 `mock-v1` 归因结果。
 - 提供总览、趋势、项目、用户、环节、工作流和代码归因查询。
+- 问题许愿池支持结构化描述和 PNG/JPEG/WebP 图片，图片落在对象存储目录并生成去除元数据的预览图。
 - 当前 MVP 完全不鉴权，写入和查询接口均匿名访问。
 - 输出按访问、业务和错误分流的人类可读日志，不记录 Token、remote 或请求体。
 
@@ -54,6 +55,10 @@ AAW_TELEMETRY_DATABASE_CONFIG_FILE=/etc/aaw-telemetry/database.yaml
 根据实际仓库修改 `config/projects.yaml`。Pydantic Settings 会读取进程环境；使用 `.env` 时应由启动器加载，服务本身不隐式读取项目外的配置。
 修改项目配置后需要重启服务，使校验后的新配置生效。
 
+问题图片默认存放在 `AAW_TELEMETRY_OBJECT_STORAGE_DIR/issue-images`。临时图片和从描述中
+移除的图片在 24 小时后由应用内清理任务删除；默认单张 5 MiB、每个问题 10 张且合计
+20 MiB。所有限制均可通过 `.env.example` 中的 `ISSUE_IMAGE_*` 配置覆盖。
+
 日志由 Python 标准 `logging`、`logging.config.dictConfig` 和
 `concurrent-log-handler` 管理。默认配置为 `config/logging.yaml`，生产环境写入：
 
@@ -92,4 +97,6 @@ ruff check .
 - 数据库可以部署在独立节点；应用服务器只需能够访问配置文件中的主机和端口，不依赖本机 `mysql.service`。
 - 生产数据库只能通过 Alembic 迁移创建或升级，服务启动时不会自动建表。
 - 使用多进程部署时仍由 MySQL 行锁和约束保证一致性。
+- 问题图片使用本地对象目录时只支持单个应用实例；横向扩容前必须改用共享文件卷或对象存储。
+- 服务不会自动备份问题图片；文件丢失时接口返回 404，问题文字和其他字段仍可读取。
 - 应用日志独立保存在 `/var/log/aaw-telemetry`；按 `request_id`、`event`、`error_code`、`message_id` 和 `workflow_id` 检索可读文本行。
