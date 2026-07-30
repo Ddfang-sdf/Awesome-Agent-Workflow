@@ -1,91 +1,150 @@
-# sr-design 安装指南
+# question-tracker 安装指南
+
+question-tracker 是一个 MCP（Model Context Protocol）服务器，为 AI Agent 提供"问题池"能力：批量记录待澄清问题、跟踪答案、维护答案历史、按会话隔离持久化。Go 静态编译，零运行时依赖。
 
 ## 1. 前置条件
 
-- Python 3.8+（开发环境为 3.11.9）
-- fastmcp 库：`pip install fastmcp`（开发环境为 3.3.1）
-- 目标环境对 Skill 目录有读写权限
+- Agent 宿主：Claude Code / Chrys / Codex / OpenCode 之一
+- **无其他依赖**：不需要 Python、uv、fastmcp 或任何运行时
 
 ## 2. 文件结构
 
 ```
-sr-design/
-├── SKILL.md
-├── mcp_server.py
-├── test_mcp_server.py
-├── test_blackbox.py
-├── INSTALL.md
-└── .question_state.json  # 运行时自动生成
+question-tracker-mcp/
+├── bin/
+│   ├── linux/mcp_server       # Linux 可执行文件（静态编译，零依赖）
+│   └── windows/mcp_server.exe # Windows 可执行文件
+├── go/                        # Go 源码（开发用，不参与安装）
+├── python/                    # Python 实现（已冻结 legacy，不再维护）
+└── INSTALL.md                 # 本文档
 ```
 
-## 3. 安装步骤
+## 3. 安装
 
-### 3.1 复制目录
+### 3.1 推荐：install.sh 一键安装
 
-将整个 `sr-design/` 目录复制到目标位置（通常是 Claude Code 的 skills 加载路径，如 `~/.claude/skills/`）。
-
-### 3.2 安装 Python 依赖
+在 Awesome-Agent-Workflow 仓库根目录执行：
 
 ```bash
-pip install fastmcp
+./install.sh --target=claude --user --copy     # Claude Code
+./install.sh --target=chrys --user --copy      # Chrys
+./install.sh --target=codex --user             # Codex（仅注册 MCP）
+./install.sh --target=opencode --user --copy   # OpenCode
 ```
 
-### 3.3 注册 MCP Server
+install.sh 会自动完成：复制 skills、按平台选择二进制、向 Agent 配置文件注册 MCP。
 
-在 Claude Code 的 `~/.claude.json`（或 `~/.claude/claude_desktop_config.json`）、opencode 的 `.opencode.json` 中添加：
+### 3.2 手动注册（可选）
+
+将本目录复制到目标位置后，向 Agent 的 MCP 配置中添加（command 为二进制的**绝对路径**，全部使用正斜杠）：
+
+**Claude Code**（`~/.claude.json`）：
 
 ```json
 {
   "mcpServers": {
     "question-tracker": {
-      "command": "python3",
-      "args": ["/absolute/path/to/sr-design/mcp_server.py"]
+      "command": "/absolute/path/to/question-tracker-mcp/bin/linux/mcp_server",
+      "args": [],
+      "env": {}
     }
   }
 }
 ```
 
-> 也可以直接跑仓库根目录的 `./install.sh`，它会自动处理复制、依赖安装和 MCP 注册。
+**Chrys**（`~/.chrys/agents/Code.yaml`）：
 
-### 3.4 重启 AI 编码助手
-
-重启后 MCP Server 将自动加载。
-
-## 4. 验证安装
-
-### 4.1 Skill 触发验证
-
-在 AI 编码助手中输入触发词，如"帮我写一份功能设计文档"。
-
-确认 Skill 被触发，开始分析代码仓库并提问。
-
-### 4.2 测试验证（可选）
-
-运行测试验证 MCP Server 功能正常：
-
-```bash
-cd sr-design
-pip install pytest
-python -m pytest test_mcp_server.py -v
-python -m pytest test_blackbox.py -v
+```yaml
+tools:
+  mcp:
+    - name: question-tracker
+      transport: stdio
+      command: /absolute/path/to/question-tracker-mcp/bin/linux/mcp_server
+      args: []
+      enabled: true
 ```
 
-预期结果：23 passed (UT/IT) + 5 passed (BB) = 28 passed
+**Codex**（`~/.codex/config.toml`）：
 
-## 5. 卸载
-
-### 5.1 移除 MCP Server 注册
-
-从 MCP 配置文件中移除 `question-tracker` 条目。若通过 `install.sh` 安装，可直接运行 `./install.sh --uninstall`。
-
-### 5.2 删除目录
-
-```bash
-rm -rf /absolute/path/to/sr-design
+```toml
+[mcp_servers.question-tracker]
+command = "/absolute/path/to/question-tracker-mcp/bin/linux/mcp_server"
+args = []
 ```
 
-### 5.3 卸载 fastmcp（可选）
+**OpenCode**（`opencode.json`）：
+
+```json
+{
+  "mcp": {
+    "question-tracker": {
+      "type": "local",
+      "command": ["/absolute/path/to/question-tracker-mcp/bin/linux/mcp_server"],
+      "enabled": true,
+      "environment": {}
+    }
+  }
+}
+```
+
+Windows 平台将 `linux/mcp_server` 换成 `windows/mcp_server.exe`。
+
+注册后重启 Agent 宿主生效。
+
+## 4. 数据目录
+
+问题池持久化在用户主目录下，与 Agent 类型无关：
+
+```
+~/.question-tracker/
+  <项目目录名>-<hash6>/           # 项目维度（按 MCP 进程工作目录推导）
+    <session>/state.json          # 活跃问题池
+    .archive/                     # finalize 完成后的归档池
+      <session>-<yyyyMMdd>/state.json
+```
+
+- **根目录覆盖**：设置环境变量 `QUESTION_TRACKER_HOME` 可改变根目录位置（测试与高级部署用）
+- **池文件格式**：JSON（`questions` + `next_id`），可直接阅读审计
+- **多项目隔离**：不同项目目录（CWD 不同）的问题池天然隔离
+
+## 5. 工具一览
+
+| 工具 | session | 作用 |
+|---|---|---|
+| `add_questions` | 必填 | 批量添加问题；目标池不存在时自动创建 |
+| `answer_question` | 必填 | 记录用户答案 |
+| `update_answer` | 必填 | 修改已记录问题的答案（保留历史） |
+| `get_status` | 必填 | 查看所有问题及状态（含已答答案） |
+| `finalize_questions` | 必填 | 闭环确认；ready 后该池自动归档至 `.archive/` |
+| `reset_questions` | 必填 | 重置问题池 |
+| `list_sessions` | 不需要 | 列出当前项目下所有问题池（发现与审计入口） |
+| `reopen_session` | 必填 | 将已归档的池重开回活跃区 |
+| `delete_session` | 必填 | 删除活跃池（需 confirm: true） |
+| `cleanup_sessions` | 不需要 | 归档池受控清理（默认只列不删，purge 需 confirm: true） |
+
+### 调用纪律
+
+1. **session 必填**：所有池操作必须传 session。忘记池名时先 `list_sessions`，不得随意起名另开新池。
+2. **命名规范**：`<工作单元编号>-<语义关键词>`（如 `sr001-用户认证`、`sr001-ar002-支付回调`）。
+3. **list-first**：启动时先 `list_sessions` 检查目标池是否存在，存在则续用，不存在再 `add_questions` 新建。
+4. **无法确定时问人**：凭语义无法唯一确定目标池时，不得猜测，必须将 `list_sessions` 的结果展示给用户，请用户指定。
+5. **池名不含敏感信息**：同一 project 下池名对所有调用方可见，不得包含密码、密钥、个人隐私。
+
+## 6. 验证安装
+
+直接运行二进制验证 stdio 握手与建池（Linux/Git Bash 示例）：
 
 ```bash
-pip uninstall fastmcp
+export QUESTION_TRACKER_HOME=/tmp/qt-verify
+(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'; \
+ echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"add_questions","arguments":{"session":"verify-pool","questions":["验证问题？"]}}}'; \
+ echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_status","arguments":{"session":"verify-pool"}}}'; \
+ sleep 2) | /path/to/mcp_server
 ```
+
+预期：initialize 响应 `protocolVersion: "2024-11-05"`；add 返回 `added_count: 1` 与 `pool_location`；get_status 返回 `total: 1, pending: 1`。池文件出现在 `/tmp/qt-verify/<项目>-<hash>/verify-pool/state.json`。
+
+## 7. 卸载
+
+1. 从 Agent 配置中移除 `question-tracker` 条目（或执行 `./install.sh --uninstall --target=<agent>`）
+2. 数据目录 `~/.question-tracker/` 包含历史决策记录：默认保留；确认不需要后可手动删除
