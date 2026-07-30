@@ -62,6 +62,12 @@ class StartCliTests(CliTestBase):
         self.assertIn("SR SR-HUMAN 已启动", result.stdout)
         self.assertIn("aaw next", result.stdout)
 
+    def test_start_does_not_write_session_marker(self) -> None:
+        """question-tracker 2.0 起不再消费 .current_session；start 不得生成该文件。"""
+        self.run_cli("start", "--sr", "SR-NOMARK")
+
+        self.assertFalse((self.cwd / ".sdd" / ".current_session").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
