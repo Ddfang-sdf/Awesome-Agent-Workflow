@@ -324,6 +324,7 @@ case "$CONFIG_FMT" in
     uv run python - "$CONFIG_FILE" "$MCP_SCOPE_KEY" "$MCP_EXE" <<'PY'
 import json, os, sys
 path, scope_key, exe_path = sys.argv[1], sys.argv[2], sys.argv[3]
+exe_path = exe_path.replace(chr(92), "/")
 data = {} if not os.path.exists(path) else json.load(open(path, encoding="utf-8"))
 entry = {"command": exe_path, "args": [], "env": {}}
 if scope_key == "__global__":
@@ -340,6 +341,7 @@ PY
     uv run python - "$CONFIG_FILE" "$MCP_EXE" <<'PY'
 import json, os, sys
 path, exe_path = sys.argv[1], sys.argv[2]
+exe_path = exe_path.replace(chr(92), "/")
 data = {} if not os.path.exists(path) else json.load(open(path, encoding="utf-8"))
 data.setdefault("$schema", "https://opencode.ai/config.json")
 data.setdefault("mcp", {})["question-tracker"] = {
@@ -357,6 +359,7 @@ PY
     uv run python - "$CONFIG_FILE" "$MCP_EXE" <<'PY'
 import os, sys, re
 path, exe_path = sys.argv[1], sys.argv[2]
+exe_path = exe_path.replace(chr(92), "/")
 content = ""
 if os.path.exists(path):
     content = open(path, encoding="utf-8").read()
@@ -383,6 +386,7 @@ import os, sys
 from pathlib import Path
 path = Path(sys.argv[1])
 exe_path = sys.argv[2]
+exe_path = exe_path.replace(chr(92), "/")
 entry = "    - name: question-tracker\n      transport: stdio\n      command: " + exe_path + "\n      args: []\n      enabled: true\n"
 if not path.exists():
     try:

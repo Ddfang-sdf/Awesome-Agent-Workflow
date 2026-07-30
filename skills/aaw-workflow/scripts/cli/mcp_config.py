@@ -47,6 +47,17 @@ class MCPConfigError(Exception):
         self.config_file = config_file
 
 
+def _posix(path: Path | str) -> str:
+    """Return the path with forward slashes for config files.
+
+    Config files (JSON/TOML/YAML) written for cross-agent consumption use
+    POSIX-style separators uniformly: backslashes are escape characters in
+    YAML and look broken mixed with slashes on Windows.  Windows APIs accept
+    forward slashes everywhere, so this is always safe.
+    """
+    return str(path).replace("\\", "/")
+
+
 # ===================================================================
 # PG01: Platform detection
 # ===================================================================
@@ -227,7 +238,7 @@ def upsert_claude_mcp(
         servers = project.setdefault("mcpServers", {})
 
     # 3. Build entry
-    entry = {"command": str(exe_path), "args": [], "env": {}}
+    entry = {"command": _posix(exe_path), "args": [], "env": {}}
 
     # 4. Upsert
     changed = _upsert_servers_entry(servers, MCP_SERVER_NAME, entry)
@@ -261,7 +272,7 @@ def upsert_codex_mcp(config_file: Path, exe_path: Path) -> bool:
     section_name = f"[mcp_servers.{MCP_SERVER_NAME}]"
     target_block = (
         f"{section_name}\n"
-        f'command = "{exe_path}"\n'
+        f'command = "{_posix(exe_path)}"\n'
         "args = []\n"
     )
 
@@ -278,7 +289,7 @@ def upsert_codex_mcp(config_file: Path, exe_path: Path) -> bool:
         existing = match.group(0)
         # Extract existing command value
         cmd_match = re.search(r'command\s*=\s*"([^"]*)"', existing)
-        if cmd_match and cmd_match.group(1) == str(exe_path):
+        if cmd_match and cmd_match.group(1) == _posix(exe_path):
             return False  # Already up to date
         # Replace the section: remove the old one, insert the new one
         before = content[: match.start()]
@@ -323,7 +334,7 @@ def upsert_opencode_mcp(config_file: Path, exe_path: Path) -> bool:
 
     entry = {
         "type": "local",
-        "command": [str(exe_path)],
+        "command": [_posix(exe_path)],
         "enabled": True,
         "environment": {},
     }
@@ -333,7 +344,7 @@ def upsert_opencode_mcp(config_file: Path, exe_path: Path) -> bool:
         existing = mcp[MCP_SERVER_NAME]
         existing_cmd = existing.get("command", [])
         if isinstance(existing_cmd, list) and len(existing_cmd) > 0:
-            if existing_cmd[0] == str(exe_path):
+            if existing_cmd[0] == _posix(exe_path):
                 return False  # Already up to date
 
     mcp[MCP_SERVER_NAME] = entry
@@ -385,7 +396,7 @@ _QUESTION_TRACKER_ENTRY_LINES = [
 
 def _format_mcp_entry(exe_path: Path) -> list[str]:
     """Format question-tracker MCP entry lines with correct indentation."""
-    return [line.format(exe_path=str(exe_path)) for line in _QUESTION_TRACKER_ENTRY_LINES]
+    return [line.format(exe_path=_posix(exe_path)) for line in _QUESTION_TRACKER_ENTRY_LINES]
 
 
 def _create_chrys_from_builtin(config_file: Path, exe_path: Path) -> bool:
@@ -408,7 +419,7 @@ def _create_chrys_from_builtin(config_file: Path, exe_path: Path) -> bool:
 
     # Inject MCP entry into the builtin text
     mcp_lines = _format_mcp_entry(exe_path)
-    result = _append_mcp_to_yaml_text(builtin_text, mcp_lines, str(exe_path))
+    result = _append_mcp_to_yaml_text(builtin_text, mcp_lines, _posix(exe_path))
     config_file.write_text(result, "utf-8")
     return True
 
@@ -462,7 +473,7 @@ def _append_mcp_to_yaml_text(text: str, mcp_lines: list[str], exe_path: str = ""
         # Check command
         existing_lines = _get_mcp_entry_lines(lines, existing_idx, mcp_idx)
         existing_command = _extract_yaml_field(existing_lines, "command")
-        if os.path.normpath(existing_command) == os.path.normpath(exe_path):
+        if existing_command is not None and _posix(existing_command) == _posix(exe_path):
             return text  # Already up to date
         # Replace
         entry_end = _find_mcp_entry_end(lines, existing_idx, mcp_idx)
@@ -623,8 +634,7 @@ def _extract_yaml_field(entry_lines: list[str], field: str) -> str | None:
 def _upsert_chrys_mcp_in_text(config_file: Path, exe_path: Path) -> bool:
     """Upsert MCP entry in an existing Code.yaml (pure-text)."""
     text = config_file.read_text("utf-8")
-    exe_path_str = str(exe_path)
-    result = _append_mcp_to_yaml_text(text, _format_mcp_entry(exe_path), exe_path_str)
+    result = _append_mcp_to_yaml_text(text, _format_mcp_entry(exe_path), _posix(exe_path))
     if result == text:
         return False
     config_file.write_text(result, "utf-8")
@@ -677,7 +687,7 @@ def _upsert_servers_entry(
     """Upsert *entry* into *servers* dict under *name*.  Returns True if changed."""
     if name in servers:
         existing = servers[name]
-        if existing.get("command") == entry["command"]:
+        if _posix(str(existing.get("command", ""))) == _posix(entry["command"]):
             return False  # Already up to date
     servers[name] = entry
     return True
