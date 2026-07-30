@@ -33,13 +33,32 @@ version: "2.3.2.1"
 
 ## 问题管理工具
 
-你可使用以下 MCP 工具辅助管理问题状态：
+本 Skill 依赖 question-tracker MCP Server。可用工具：
 
-- `add_questions` – 批量添加待确认问题
-- `answer_question` – 记录用户答案，并返回是否需要分析新问题的指示
-- `update_answer` – 修改已记录问题的答案，用于用户纠正或补充
-- `get_status` – 查看所有问题及状态（含已回答问题的答案），用于回顾已知信息
-- `finalize_questions` – 检查所有问题是否已回答，并返回问答摘要
+| 工具 | session | 作用 |
+|---|---|---|
+| `add_questions` | 必填 | 批量添加问题；目标池不存在时自动创建 |
+| `answer_question` | 必填 | 记录用户答案 |
+| `update_answer` | 必填 | 修改已记录问题的答案 |
+| `get_status` | 必填 | 查看所有问题及状态（含已答答案） |
+| `finalize_questions` | 必填 | 闭环确认；ready 后该池自动归档 |
+| `reset_questions` | 必填 | 重置问题池 |
+| `list_sessions` | 不需要 | 列出当前项目下所有问题池（发现与审计入口） |
+| `reopen_session` | 必填 | 将已归档的池重开回活跃区 |
+| `delete_session` | 必填 | 删除活跃池（需 confirm: true） |
+| `cleanup_sessions` | 不需要 | 归档池受控清理（默认只列不删） |
+
+若调用 MCP 工具报错（未注册或连接失败），不得跳过问题池跟踪继续执行：中止当前流程，提示用户参照 `skills/question-tracker-mcp/INSTALL.md` 完成注册并重启后重试。
+
+### 问题池调用纪律
+
+1. **session 必填**：所有池操作必须传 session。忘记池名时先 `list_sessions`，不得随意起名另开新池。
+2. **命名规范**：`<工作单元编号>-<语义关键词>`。编号精确索引（如 `sr001`、`sr001-ar002`），关键词帮助失忆后的 AI 从列表中联想找回。
+3. **list-first**：启动时先 `list_sessions` 检查目标池是否存在，存在则续用，不存在再 `add_questions` 新建。
+4. **无法确定时问人**：凭语义无法唯一确定目标池时，不得猜测，必须将 `list_sessions` 的结果展示给用户，请用户指定。
+5. **池名不含敏感信息**：同一 project 下池名对所有调用方可见，不得包含密码、密钥、个人隐私。
+
+本 Skill 的问题池使用与本 AR 的 ar-clarify **完全相同的 session 名**（`{SR编号}-{AR编号}-<语义关键词>`）。同 AR 的澄清决策与边界冲突问题记录在同一池中，该 AR 的全部决策轨迹集中可追溯。
 
 ## 工作流执行流程
 
@@ -59,6 +78,24 @@ version: "2.3.2.1"
 向用户确认以当前工作目录继续，告知用户将基于以下文档：
 - 功能设计：`SR-design.md`（SR 模式）或 `AR-clarify.md`（AR 模式）
 - 架构参考：`.sdd/software_architecture.md`
+
+---
+
+### 步骤 1.5: 问题池准备
+
+根据输入模式确定问题池并使其处于活跃状态：
+
+**AR 模式（经过 ar-clarify）**：
+
+1. 池名：`{SR编号}-{AR编号}-<语义关键词>`（与 ar-clarify 完全相同）。
+2. 调用 `list_sessions`（`include_archived: true`）定位该池：
+   - **在归档区**（存在 `{池名}-<日期后缀>`，说明 ar-clarify 已 finalize）→ 调用 `reopen_session`（`session: <含日期后缀的归档名>`）将池重开回活跃区，该 AR 的澄清决策全部恢复可见；
+   - **在活跃区**（说明 ar-clarify 异常中断、未 finalize）→ 直接使用，调用 `get_status`（`session: <池名>`）加载既有内容；
+   - **两处都不存在**（ar-clarify 未执行过）→ 直接进入后续流程，首次 `add_questions` 自动建池。
+
+**SR 模式（免拆分，AR=ALL，不经过 ar-clarify）**：
+
+- 池名：`{SR编号}-ALL-<语义关键词>`；无需 reopen，首次 `add_questions` 自动建池。
 
 ---
 
@@ -238,14 +275,14 @@ version: "2.3.2.1"
 - 假设原始文档完全错误，需重新验证每一个结论
 - 必须探索代码实现来验证边界定义的准确性
 - 审查后不能包含`可能、有概率、应该`等不明确的语言
-- 请使用问题管理工具`add_question`添加问题
+- 请使用问题管理工具`add_questions`添加问题
 ```
 
 ---
 
 ### 步骤 4: 使用问题管理工具闭环问题
 
-使用**问题管理工具**逐个引导用户回答步骤 3 中发现的所有问题，并闭环问题刷新文档。
+使用**问题管理工具**逐个引导用户回答步骤 3 中发现的所有问题，并闭环问题刷新文档。闭环过程中的所有问题管理工具调用（`add_questions` / `answer_question` / `update_answer` / `get_status` / `finalize_questions`）均携带步骤 1.5 确定的 `session` 参数。`finalize_questions` 返回 ready 后问题池自动归档至 `.archive/`；若后续需修改已归档的答案，使用 `reopen_session` 重开该池后再 `update_answer`。
 
 问题闭环后，汇总关键发现：
 
