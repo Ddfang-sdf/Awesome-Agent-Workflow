@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ============================================================
@@ -18,7 +19,6 @@ import (
 var binaryPath string
 
 func TestMain(m *testing.M) {
-	// Build the Go binary
 	exeName := "mcp_server_test.exe"
 	buildCmd := exec.Command("go", "build", "-o", exeName, ".")
 	buildCmd.Dir = "."
@@ -44,90 +44,68 @@ func TestMain(m *testing.M) {
 // Blackbox Test Helpers
 // ============================================================
 
-// bbSetup creates a temp directory with session marker and chdir into it.
-func bbSetup(t *testing.T) (origCwd string, tempDir string) {
+// bbSetup creates an isolated env: QUESTION_TRACKER_HOME in temp dir,
+// chdir into a temp project workdir. Returns (origCwd, poolRoot, workDir).
+func bbSetup(t *testing.T) (string, string, string) {
 	t.Helper()
-	origCwd, _ = os.Getwd()
-	tempDir = t.TempDir()
-	os.Chdir(tempDir)
-
-	// Create session marker
-	sddDir := filepath.Join(tempDir, ".sdd")
-	sessionDir := filepath.Join(sddDir, "test")
-	os.MkdirAll(sessionDir, 0755)
-	markerPath := filepath.Join(sddDir, ".current_session")
-	os.WriteFile(markerPath, []byte("./.sdd/test/"), 0644)
-
-	return origCwd, tempDir
+	origCwd, _ := os.Getwd()
+	poolRoot := t.TempDir()
+	workDir := t.TempDir()
+	os.Chdir(workDir)
+	return origCwd, poolRoot, workDir
 }
 
-// bbCleanupState removes the question state file.
-func bbCleanupState(t *testing.T, tempDir string) {
+// poolStateFile locates the state.json for a session under poolRoot
+// via directory walk (the project slug is CWD-derived in tests).
+func poolStateFile(t *testing.T, poolRoot, session string) string {
 	t.Helper()
-	stateFile := filepath.Join(tempDir, ".sdd", "test", ".question_state.json")
-	os.Remove(stateFile)
-}
-
-// startMCP starts the MCP server subprocess.
-func startMCP(t *testing.T, tempDir string) *exec.Cmd {
-	t.Helper()
-	cmd := exec.Command(binaryPath)
-	cmd.Dir = tempDir
-	cmd.Stderr = os.Stderr
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatalf("failed to get stdin pipe: %v", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("failed to get stdout pipe: %v", err)
-	}
-
-	// Store pipes for later use via cmd.ExtraFiles hack... let's use a different approach
-	// Actually, let's store them in a context using the cmd itself
-	// We'll use a simple wrapper struct
-	cmd.Env = os.Environ()
-
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("failed to start MCP server: %v", err)
-	}
-
-	// Store the pipes via the process state
-	// Actually, the issue is that we need to keep the pipes alive
-	// Let's restructure to avoid this complexity
-	// We'll return the cmd and use separate functions
-
-	// Clean up on test completion
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-			cmd.Wait()
+	var found string
+	filepath.Walk(poolRoot, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && info.Name() == "state.json" {
+			if strings.Contains(filepath.ToSlash(path), "/"+session+"/state.json") {
+				found = path
+			}
 		}
+		return nil
 	})
+	return found
+}
 
-	// We need to set up the IO properly. Let's just store pipes in a struct
-	_ = stdin
-	_ = stdout
-	return cmd
+// poolArchiveDirs lists .archive subdirectories for a session under poolRoot.
+func poolArchiveDirs(t *testing.T, poolRoot, session string) []string {
+	t.Helper()
+	var found []string
+	filepath.Walk(poolRoot, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.IsDir() && info.Name() == ".archive" {
+			entries, _ := os.ReadDir(path)
+			for _, e := range entries {
+				if strings.HasPrefix(e.Name(), session+"-") {
+					found = append(found, filepath.Join(path, e.Name()))
+				}
+			}
+		}
+		return nil
+	})
+	return found
 }
 
 // mcpClient wraps the MCP subprocess communication.
 type mcpClient struct {
-	cmd     *exec.Cmd
-	stdin   *bufio.Writer
-	stdout  *bufio.Scanner
-	t       *testing.T
-	nextID  int
+	cmd    *exec.Cmd
+	stdin  *bufio.Writer
+	stdout *bufio.Scanner
+	t      *testing.T
+	nextID int
 }
 
-// newMCPClient starts the MCP server and returns a client for communication.
-func newMCPClient(t *testing.T, tempDir string) *mcpClient {
+// newMCPClient starts the MCP server with the given env and returns a client.
+func newMCPClient(t *testing.T, workDir, poolRoot string) *mcpClient {
 	t.Helper()
 
 	cmd := exec.Command(binaryPath)
-	cmd.Dir = tempDir
+	cmd.Dir = workDir
 	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(), "QUESTION_TRACKER_HOME="+poolRoot)
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -158,33 +136,41 @@ func newMCPClient(t *testing.T, tempDir string) *mcpClient {
 	}
 }
 
-// initialize performs the MCP initialize handshake.
-func (c *mcpClient) initialize() {
+// initialize performs the MCP initialize handshake with a specific version.
+// Empty string means the protocolVersion field is omitted.
+func (c *mcpClient) initializeWithVersion(version string) map[string]interface{} {
 	c.t.Helper()
-
 	c.nextID++
+	params := map[string]interface{}{
+		"capabilities": map[string]interface{}{},
+		"clientInfo": map[string]interface{}{
+			"name":    "test",
+			"version": "1.0.0",
+		},
+	}
+	if version != "" {
+		params["protocolVersion"] = version
+	}
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  "initialize",
-		"params": map[string]interface{}{
-			"protocolVersion": "2024-11-05",
-			"capabilities":    map[string]interface{}{},
-			"clientInfo": map[string]interface{}{
-				"name":    "test",
-				"version": "1.0.0",
-			},
-		},
-		"id": c.nextID,
+		"params":  params,
+		"id":      c.nextID,
 	}
+	return c.sendRequest(req)
+}
 
-	resp := c.sendRequest(req)
+// initialize performs the default handshake.
+func (c *mcpClient) initialize() {
+	c.t.Helper()
+	resp := c.initializeWithVersion("2024-11-05")
 	if resp["error"] != nil {
 		c.t.Fatalf("initialize failed: %v", resp["error"])
 	}
 }
 
-// callTool sends a tools/call request and returns the parsed tool result.
-func (c *mcpClient) callTool(name string, args map[string]interface{}) map[string]interface{} {
+// callTool sends a tools/call request and returns (tool result JSON, isError).
+func (c *mcpClient) callTool(name string, args map[string]interface{}) (map[string]interface{}, bool) {
 	c.t.Helper()
 
 	c.nextID++
@@ -201,35 +187,67 @@ func (c *mcpClient) callTool(name string, args map[string]interface{}) map[strin
 	resp := c.sendRequest(req)
 
 	if errData, ok := resp["error"]; ok {
-		return map[string]interface{}{"error": fmt.Sprintf("%v", errData)}
+		return map[string]interface{}{"error": fmt.Sprintf("%v", errData)}, true
 	}
 
 	result, ok := resp["result"].(map[string]interface{})
 	if !ok {
-		return map[string]interface{}{"error": "no result in response"}
+		return map[string]interface{}{"error": "no result in response"}, true
+	}
+
+	isError := false
+	if v, ok := result["isError"].(bool); ok && v {
+		isError = true
 	}
 
 	content, ok := result["content"].([]interface{})
 	if !ok || len(content) == 0 {
-		return map[string]interface{}{"error": "no content in result"}
+		return map[string]interface{}{"error": "no content in result"}, isError
 	}
 
 	contentItem, ok := content[0].(map[string]interface{})
 	if !ok {
-		return map[string]interface{}{"error": "invalid content item"}
+		return map[string]interface{}{"error": "invalid content item"}, isError
 	}
 
 	text, ok := contentItem["text"].(string)
 	if !ok {
-		return map[string]interface{}{"error": "invalid text in content"}
+		return map[string]interface{}{"error": "invalid text in content"}, isError
 	}
 
 	var toolResult map[string]interface{}
 	if err := json.Unmarshal([]byte(text), &toolResult); err != nil {
-		return map[string]interface{}{"error": fmt.Sprintf("failed to parse tool result: %v", err)}
+		return map[string]interface{}{"error": fmt.Sprintf("failed to parse tool result: %v", err)}, isError
 	}
 
-	return toolResult
+	return toolResult, isError
+}
+
+// callRaw sends a raw request and returns the raw response.
+func (c *mcpClient) callRaw(req map[string]interface{}) map[string]interface{} {
+	c.t.Helper()
+	c.nextID++
+	req["id"] = c.nextID
+	if _, ok := req["jsonrpc"]; !ok {
+		req["jsonrpc"] = "2.0"
+	}
+	return c.sendRequest(req)
+}
+
+// sendRawText writes a raw line and returns the parsed response.
+func (c *mcpClient) sendRawText(text string) map[string]interface{} {
+	c.t.Helper()
+	c.stdin.Write([]byte(text + "\n"))
+	c.stdin.Flush()
+	if !c.stdout.Scan() {
+		c.t.Fatal("no response from server")
+	}
+	line := c.stdout.Text()
+	var resp map[string]interface{}
+	if err := json.Unmarshal([]byte(line), &resp); err != nil {
+		c.t.Fatalf("unmarshal response: %v\nline: %s", err, line)
+	}
+	return resp
 }
 
 // sendRequest writes a JSON-RPC request and reads the response.
@@ -269,377 +287,12 @@ func (c *mcpClient) close() {
 	}
 }
 
-// ============================================================
-// BB01: Complete Workflow
-// ============================================================
-
-func TestBB01_CompleteWorkflow(t *testing.T) {
-	origCwd, tempDir := bbSetup(t)
-	defer os.Chdir(origCwd)
-	defer bbCleanupState(t, tempDir)
-
-	client := newMCPClient(t, tempDir)
-	defer client.close()
-	client.initialize()
-
-	r1 := client.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"问题A", "问题B", "问题C"},
-	})
-	if r1["added_count"] == nil {
-		t.Fatalf("add_questions failed: %v", r1)
-	}
-
-	r2 := client.callTool("answer_question", map[string]interface{}{
-		"question": "问题A", "answer": "答案A",
-	})
-	if r2["matched_question"] == nil {
-		t.Fatalf("answer_question A failed: %v", r2)
-	}
-
-	r3 := client.callTool("answer_question", map[string]interface{}{
-		"question": "问题B", "answer": "答案B",
-	})
-	if r3["matched_question"] == nil {
-		t.Fatalf("answer_question B failed: %v", r3)
-	}
-
-	r3b := client.callTool("answer_question", map[string]interface{}{
-		"question": "问题C", "answer": "答案C",
-	})
-	if r3b["matched_question"] == nil {
-		t.Fatalf("answer_question C failed: %v", r3b)
-	}
-
-	r4 := client.callTool("finalize_questions", map[string]interface{}{})
-	if r4["status"] != "ready" {
-		t.Errorf("expected status 'ready', got '%s'", r4["status"])
-	}
-	summary, _ := r4["summary"].([]interface{})
-	if len(summary) != 3 {
-		t.Errorf("expected 3 summary entries, got %d", len(summary))
-	}
+// todayStr returns yyyyMMdd.
+func todayStr() string {
+	return time.Now().Format("20060102")
 }
 
-// ============================================================
-// BB02: Error Response Format
-// ============================================================
-
-func TestBB02_ErrorResponseFormat(t *testing.T) {
-	origCwd, tempDir := bbSetup(t)
-	defer os.Chdir(origCwd)
-	defer bbCleanupState(t, tempDir)
-
-	client := newMCPClient(t, tempDir)
-	defer client.close()
-	client.initialize()
-
-	client.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"问题A"},
-	})
-
-	r := client.callTool("answer_question", map[string]interface{}{
-		"question": "不存在的原文", "answer": "答案",
-	})
-
-	if r["error"] == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(fmt.Sprintf("%v", r["error"]), "未匹配到问题") {
-		t.Errorf("expected '未匹配到问题' in error, got '%v'", r["error"])
-	}
-}
-
-// ============================================================
-// BB03: Persistence Recovery
-// ============================================================
-
-func TestBB03_PersistenceRecovery(t *testing.T) {
-	origCwd, tempDir := bbSetup(t)
-	defer os.Chdir(origCwd)
-	defer bbCleanupState(t, tempDir)
-
-	client := newMCPClient(t, tempDir)
-	client.initialize()
-
-	client.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"问题A", "问题B"},
-	})
-	client.callTool("answer_question", map[string]interface{}{
-		"question": "问题A", "answer": "答案A",
-	})
-	client.close()
-
-	// Start new process
-	client2 := newMCPClient(t, tempDir)
-	defer client2.close()
-	client2.initialize()
-
-	r := client2.callTool("get_status", map[string]interface{}{
-		"detail": "full",
-	})
-	if v, ok := getInt(r["pending"]); !ok || v != 1 {
-		t.Errorf("expected pending=1, got %v", r["pending"])
-	}
-	if v, ok := getInt(r["answered"]); !ok || v != 1 {
-		t.Errorf("expected answered=1, got %v", r["answered"])
-	}
-
-	questions, _ := r["questions"].([]interface{})
-	var texts []string
-	for _, q := range questions {
-		m := q.(map[string]interface{})
-		texts = append(texts, m["question"].(string))
-	}
-	foundA := false
-	foundB := false
-	for _, txt := range texts {
-		if txt == "问题A" {
-			foundA = true
-		}
-		if txt == "问题B" {
-			foundB = true
-		}
-	}
-	if !foundA || !foundB {
-		t.Errorf("expected both 问题A and 问题B, got %v", texts)
-	}
-}
-
-// ============================================================
-// BB04: External Clear New Design
-// ============================================================
-
-func TestBB04_ExternalClearNewDesign(t *testing.T) {
-	origCwd, tempDir := bbSetup(t)
-	defer os.Chdir(origCwd)
-	defer bbCleanupState(t, tempDir)
-
-	client := newMCPClient(t, tempDir)
-	client.initialize()
-
-	client.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"问题A", "问题B"},
-	})
-	client.callTool("answer_question", map[string]interface{}{
-		"question": "问题A", "answer": "答案A",
-	})
-	client.close()
-
-	// Delete the state file externally
-	stateFile := filepath.Join(tempDir, ".sdd", "test", ".question_state.json")
-	os.Remove(stateFile)
-
-	client2 := newMCPClient(t, tempDir)
-	defer client2.close()
-	client2.initialize()
-
-	client2.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"新问题"},
-	})
-	r := client2.callTool("get_status", map[string]interface{}{
-		"detail": "full",
-	})
-	if v, ok := getInt(r["total"]); !ok || v != 1 {
-		t.Errorf("expected total=1, got %v", r["total"])
-	}
-
-	// Verify next_id in state file
-	stateData, _ := os.ReadFile(stateFile)
-	var state map[string]interface{}
-	json.Unmarshal(stateData, &state)
-	if v, ok := state["next_id"].(float64); !ok || int(v) != 2 {
-		t.Errorf("expected next_id=2, got %v", state["next_id"])
-	}
-}
-
-// ============================================================
-// BB05: JSON-RPC Protocol Error
-// ============================================================
-
-func TestBB05_JSONRPCProtocolError(t *testing.T) {
-	origCwd, tempDir := bbSetup(t)
-	defer os.Chdir(origCwd)
-	defer bbCleanupState(t, tempDir)
-
-	client := newMCPClient(t, tempDir)
-	defer client.close()
-	client.initialize()
-
-	// Send invalid JSON
-	client.stdin.Write([]byte("这不是有效的JSON\n"))
-	client.stdin.Flush()
-
-	if !client.stdout.Scan() {
-		t.Fatal("expected response even for invalid input")
-	}
-
-	line := client.stdout.Text()
-	var resp map[string]interface{}
-	if err := json.Unmarshal([]byte(line), &resp); err != nil {
-		t.Fatalf("expected valid JSON response, got: %s", line)
-	}
-}
-
-// ============================================================
-// BB-SI-01 ~ BB-SI-04: Session Isolation Blackbox
-// ============================================================
-
-func testBBSI_SetupWithMarker(t *testing.T, markerContent string) (origCwd string, tempDir string) {
-	t.Helper()
-	origCwd, _ = os.Getwd()
-	tempDir = t.TempDir()
-	os.Chdir(tempDir)
-
-	sddDir := filepath.Join(tempDir, ".sdd")
-	os.MkdirAll(sddDir, 0755)
-	markerPath := filepath.Join(sddDir, ".current_session")
-	os.WriteFile(markerPath, []byte(markerContent), 0644)
-
-	// Create target directory
-	trimmed := strings.TrimSpace(markerContent)
-	targetDir := filepath.Join(tempDir, trimmed)
-	os.MkdirAll(targetDir, 0755)
-
-	return origCwd, tempDir
-}
-
-func TestBB_SI_01_WithMarkerNormalFlow(t *testing.T) {
-	origCwd, tempDir := testBBSI_SetupWithMarker(t, "./.sdd/SR-123/")
-	defer os.Chdir(origCwd)
-
-	client := newMCPClient(t, tempDir)
-	defer client.close()
-	client.initialize()
-
-	r1 := client.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"Q-A", "Q-B", "Q-C"},
-	})
-	if r1["added_count"] == nil {
-		t.Fatalf("add_questions failed: %v", r1)
-	}
-
-	client.callTool("answer_question", map[string]interface{}{"question": "Q-A", "answer": "Ans-A"})
-	client.callTool("answer_question", map[string]interface{}{"question": "Q-B", "answer": "Ans-B"})
-	client.callTool("answer_question", map[string]interface{}{"question": "Q-C", "answer": "Ans-C"})
-
-	r5 := client.callTool("finalize_questions", map[string]interface{}{})
-	if r5["status"] != "ready" {
-		t.Errorf("expected status 'ready', got '%s'", r5["status"])
-	}
-	summary, _ := r5["summary"].([]interface{})
-	if len(summary) != 3 {
-		t.Errorf("expected 3 summary entries, got %d", len(summary))
-	}
-
-	// Verify file is in SR-123 directory
-	expectedFile := filepath.Join(tempDir, ".sdd", "SR-123", ".question_state.json")
-	if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
-		t.Errorf("state file should exist at %s", expectedFile)
-	}
-}
-
-func TestBB_SI_02_NoMarkerReturnsError(t *testing.T) {
-	origCwd, tempDir := bbSetup(t)
-	defer os.Chdir(origCwd)
-
-	// Remove the session marker
-	markerPath := filepath.Join(tempDir, ".sdd", ".current_session")
-	os.Remove(markerPath)
-
-	client := newMCPClient(t, tempDir)
-	defer client.close()
-	client.initialize()
-
-	r := client.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"Q1"},
-	})
-	if r["error"] == nil {
-		t.Fatalf("expected error, got: %v", r)
-	}
-	if !strings.Contains(fmt.Sprintf("%v", r["error"]), "aaw-workflow") {
-		t.Errorf("error should mention aaw-workflow: %v", r["error"])
-	}
-}
-
-func TestBB_SI_03_SwitchMarkerIsolation(t *testing.T) {
-	origCwd, tempDir := testBBSI_SetupWithMarker(t, "./.sdd/SR-123/")
-	defer os.Chdir(origCwd)
-
-	client := newMCPClient(t, tempDir)
-	defer client.close()
-	client.initialize()
-
-	r1 := client.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"Q1-SR123"},
-	})
-	if r1["added_count"] == nil {
-		t.Fatalf("add_questions failed: %v", r1)
-	}
-
-	// Switch marker to SR-456
-	markerPath := filepath.Join(tempDir, ".sdd", ".current_session")
-	os.MkdirAll(filepath.Join(tempDir, ".sdd", "SR-456"), 0755)
-	os.WriteFile(markerPath, []byte("./.sdd/SR-456/"), 0644)
-
-	r2 := client.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"Q2-SR456"},
-	})
-	if r2["added_count"] == nil {
-		t.Fatalf("add_questions SR456 failed: %v", r2)
-	}
-
-	r3 := client.callTool("get_status", map[string]interface{}{"detail": "full"})
-	if v, ok := getInt(r3["total"]); !ok || v != 1 {
-		t.Errorf("SR-456 session should have 1 question, got %v", r3["total"])
-	}
-}
-
-func TestBB_SI_04_RestartRecovery(t *testing.T) {
-	origCwd, tempDir := testBBSI_SetupWithMarker(t, "./.sdd/SR-123/")
-	defer os.Chdir(origCwd)
-
-	// First round
-	client1 := newMCPClient(t, tempDir)
-	client1.initialize()
-	client1.callTool("add_questions", map[string]interface{}{
-		"questions": []interface{}{"Q1", "Q2"},
-	})
-	client1.callTool("answer_question", map[string]interface{}{
-		"question": "Q1", "answer": "Ans1",
-	})
-	client1.close()
-
-	// Second round: restart
-	client2 := newMCPClient(t, tempDir)
-	defer client2.close()
-	client2.initialize()
-
-	r := client2.callTool("get_status", map[string]interface{}{"detail": "full"})
-	if v, ok := getInt(r["total"]); !ok || v != 2 {
-		t.Errorf("expected total=2 after restart, got %v", r["total"])
-	}
-	if v, ok := getInt(r["pending"]); !ok || v != 1 {
-		t.Errorf("expected pending=1 after restart, got %v", r["pending"])
-	}
-	if v, ok := getInt(r["answered"]); !ok || v != 1 {
-		t.Errorf("expected answered=1 after restart, got %v", r["answered"])
-	}
-
-	questions, _ := r["questions"].([]interface{})
-	var texts []string
-	for _, q := range questions {
-		m := q.(map[string]interface{})
-		texts = append(texts, m["question"].(string))
-	}
-	if !containsStr(texts, "Q1") || !containsStr(texts, "Q2") {
-		t.Errorf("expected both Q1 and Q2, got %v", texts)
-	}
-}
-
-// ============================================================
-// Helpers
-// ============================================================
-
+// getInt extracts an int from a JSON value.
 func getInt(v interface{}) (int, bool) {
 	switch val := v.(type) {
 	case float64:
@@ -651,11 +304,517 @@ func getInt(v interface{}) (int, bool) {
 	}
 }
 
-func containsStr(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
+// ============================================================
+// BB-01: stdio complete flow
+// ============================================================
+
+func TestBB01_StdioCompleteFlow(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	r1, isErr1 := client.callTool("add_questions", map[string]interface{}{
+		"session":   "test-session",
+		"questions": []interface{}{"Q1"},
+	})
+	if isErr1 {
+		t.Fatalf("add_questions failed: %v", r1)
+	}
+	if r1["pool_location"] == nil {
+		t.Error("add_questions should return pool_location")
+	}
+
+	r2, isErr2 := client.callTool("answer_question", map[string]interface{}{
+		"session":  "test-session",
+		"question": "Q1",
+		"answer":   "A1",
+	})
+	if isErr2 {
+		t.Fatalf("answer_question failed: %v", r2)
+	}
+	if r2["pool_location"] == nil {
+		t.Error("answer_question should return pool_location")
+	}
+
+	r3, _ := client.callTool("finalize_questions", map[string]interface{}{
+		"session": "test-session",
+	})
+	if r3["status"] != "ready" {
+		t.Errorf("expected ready, got %v", r3["status"])
+	}
+	if loc, _ := r3["pool_location"].(string); !strings.Contains(filepath.ToSlash(loc), ".archive") {
+		t.Errorf("finalize ready pool_location should point into .archive, got: %v", r3["pool_location"])
+	}
+	archives := poolArchiveDirs(t, poolRoot, "test-session")
+	if len(archives) != 1 {
+		t.Errorf("expected 1 archived dir after finalize, got %d", len(archives))
+	}
+}
+
+// ============================================================
+// BB-02: error-tolerance self-heal (M05 path)
+// ============================================================
+
+func TestBB02_ErrorToleranceSelfHeal(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	client.callTool("add_questions", map[string]interface{}{
+		"session":   "sr001-用户认证",
+		"questions": []interface{}{"Q1"},
+	})
+
+	r1, isErr1 := client.callTool("get_status", map[string]interface{}{
+		"session": "sr001-支付",
+	})
+	if !isErr1 {
+		t.Fatal("expected isError=true for missing session")
+	}
+	avail, ok := r1["available_sessions"].([]interface{})
+	if !ok {
+		t.Fatalf("expected available_sessions in error result: %v", r1)
+	}
+	found := false
+	for _, s := range avail {
+		if s.(string) == "sr001-用户认证" {
+			found = true
 		}
 	}
-	return false
+	if !found {
+		t.Fatalf("available_sessions should contain sr001-用户认证: %v", avail)
+	}
+
+	r2, isErr2 := client.callTool("get_status", map[string]interface{}{
+		"session": "sr001-用户认证",
+	})
+	if isErr2 {
+		t.Fatalf("second get_status should succeed: %v", r2)
+	}
+	if v, ok := getInt(r2["total"]); !ok || v != 1 {
+		t.Errorf("expected total=1, got %v", r2["total"])
+	}
+}
+
+// ============================================================
+// BB-03: no .sdd directory (non-AAW scenario)
+// ============================================================
+
+func TestBB03_NoSddDirectory(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	// workDir has no .sdd by construction; full flow must work
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	r, isErr := client.callTool("add_questions", map[string]interface{}{
+		"session":   "test-session",
+		"questions": []interface{}{"Q1"},
+	})
+	if isErr {
+		t.Fatalf("add_questions failed without .sdd: %v", r)
+	}
+
+	r2, isErr2 := client.callTool("answer_question", map[string]interface{}{
+		"session":  "test-session",
+		"question": "Q1",
+		"answer":   "A1",
+	})
+	if isErr2 {
+		t.Fatalf("answer_question failed without .sdd: %v", r2)
+	}
+
+	r3, _ := client.callTool("get_status", map[string]interface{}{
+		"session": "test-session",
+	})
+	if v, ok := getInt(r3["answered"]); !ok || v != 1 {
+		t.Errorf("expected answered=1, got %v", r3["answered"])
+	}
+}
+
+// ============================================================
+// BB-04: tools/list schema
+// ============================================================
+
+func TestBB04_ToolsListSchema(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	resp := client.callRaw(map[string]interface{}{
+		"method": "tools/list",
+	})
+	result, _ := resp["result"].(map[string]interface{})
+	tools, _ := result["tools"].([]interface{})
+	if len(tools) != 10 {
+		t.Fatalf("expected 10 tools, got %d", len(tools))
+	}
+
+	requiredSessionTools := []string{
+		"add_questions", "answer_question", "get_status",
+		"finalize_questions", "update_answer", "reset_questions",
+	}
+	for _, want := range requiredSessionTools {
+		found := false
+		for _, tool := range tools {
+			m := tool.(map[string]interface{})
+			if m["name"] == want {
+				found = true
+				schema, _ := m["inputSchema"].(map[string]interface{})
+				required, _ := schema["required"].([]interface{})
+				hasSession := false
+				for _, r := range required {
+					if r.(string) == "session" {
+						hasSession = true
+					}
+				}
+				if !hasSession {
+					t.Errorf("tool %s should require session", want)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("tool %s not found in tools/list", want)
+		}
+	}
+
+	// list_sessions must NOT require session
+	for _, tool := range tools {
+		m := tool.(map[string]interface{})
+		if m["name"] == "list_sessions" {
+			schema, _ := m["inputSchema"].(map[string]interface{})
+			required, _ := schema["required"].([]interface{})
+			for _, r := range required {
+				if r.(string) == "session" {
+					t.Error("list_sessions must NOT require session")
+				}
+			}
+		}
+	}
+}
+
+// ============================================================
+// BB-05: business error isError=true
+// ============================================================
+
+func TestBB05_BusinessErrorIsErrorTrue(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	client.callTool("add_questions", map[string]interface{}{
+		"session":   "test-session",
+		"questions": []interface{}{"Q1"},
+	})
+
+	r, isErr := client.callTool("get_status", map[string]interface{}{
+		"session": "nonexistent",
+	})
+	if !isErr {
+		t.Fatal("expected isError=true for business error")
+	}
+	if r["available_sessions"] == nil {
+		t.Error("text JSON should still contain available_sessions")
+	}
+}
+
+// ============================================================
+// BB-06: normal call has no isError
+// ============================================================
+
+func TestBB06_NormalCallNoIsError(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	client.callTool("add_questions", map[string]interface{}{
+		"session":   "test-session",
+		"questions": []interface{}{"Q1"},
+	})
+
+	_, isErr := client.callTool("get_status", map[string]interface{}{
+		"session": "test-session",
+	})
+	if isErr {
+		t.Error("normal call should have isError=false")
+	}
+}
+
+// ============================================================
+// BB-07: unknown tool name → protocol error -32602
+// ============================================================
+
+func TestBB07_UnknownToolProtocolError(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	resp := client.callRaw(map[string]interface{}{
+		"method": "tools/call",
+		"params": map[string]interface{}{
+			"name":      "no_such_tool",
+			"arguments": map[string]interface{}{},
+		},
+	})
+	errObj, ok := resp["error"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected JSON-RPC error, got: %v", resp)
+	}
+	if v, ok := getInt(errObj["code"]); !ok || v != -32602 {
+		t.Errorf("expected error code -32602, got %v", errObj["code"])
+	}
+	if resp["result"] != nil {
+		t.Error("protocol error should not carry result")
+	}
+}
+
+// ============================================================
+// BB-08a/08b/08c: version negotiation
+// ============================================================
+
+func TestBB08a_VersionExactMatch(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+
+	resp := client.initializeWithVersion("2024-11-05")
+	result, _ := resp["result"].(map[string]interface{})
+	if result["protocolVersion"] != "2024-11-05" {
+		t.Errorf("expected 2024-11-05, got %v", result["protocolVersion"])
+	}
+}
+
+func TestBB08b_VersionNewerRequested(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+
+	resp := client.initializeWithVersion("2025-06-18")
+	result, _ := resp["result"].(map[string]interface{})
+	if result["protocolVersion"] != "2024-11-05" {
+		t.Errorf("expected 2024-11-05 (server latest supported), got %v", result["protocolVersion"])
+	}
+}
+
+func TestBB08c_VersionMissing(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+
+	resp := client.initializeWithVersion("")
+	result, _ := resp["result"].(map[string]interface{})
+	if result["protocolVersion"] != "2024-11-05" {
+		t.Errorf("expected 2024-11-05 when version missing, got %v", result["protocolVersion"])
+	}
+}
+
+// ============================================================
+// BB-09a/09b: protocol error paths
+// ============================================================
+
+func TestBB09a_UnknownMethod(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	resp := client.callRaw(map[string]interface{}{
+		"method": "unknown/method",
+	})
+	errObj, _ := resp["error"].(map[string]interface{})
+	if v, ok := getInt(errObj["code"]); !ok || v != -32601 {
+		t.Errorf("expected -32601, got %v", errObj["code"])
+	}
+}
+
+func TestBB09b_InvalidJSON(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	resp := client.sendRawText("{broken")
+	errObj, _ := resp["error"].(map[string]interface{})
+	if v, ok := getInt(errObj["code"]); !ok || v != -32700 {
+		t.Errorf("expected -32700, got %v", errObj["code"])
+	}
+}
+
+// ============================================================
+// BB-10: list_sessions stdio flow
+// ============================================================
+
+func TestBB10_ListSessionsStdio(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	client.callTool("add_questions", map[string]interface{}{
+		"session":   "alpha",
+		"questions": []interface{}{"Q1"},
+	})
+	client.callTool("add_questions", map[string]interface{}{
+		"session":   "beta",
+		"questions": []interface{}{"Q2", "Q3"},
+	})
+
+	r, isErr := client.callTool("list_sessions", map[string]interface{}{})
+	if isErr {
+		t.Fatalf("list_sessions failed: %v", r)
+	}
+	sessions, _ := r["sessions"].([]interface{})
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+	names := map[string]int{}
+	for _, s := range sessions {
+		m := s.(map[string]interface{})
+		name := m["name"].(string)
+		if m["path"] == nil || m["path"] == "" {
+			t.Error("session should have path")
+		}
+		if m["total"] == nil || m["pending"] == nil {
+			t.Error("session should have total and pending")
+		}
+		total, _ := getInt(m["total"])
+		names[name] = total
+	}
+	if names["alpha"] != 1 || names["beta"] != 2 {
+		t.Errorf("session stats wrong: %v", names)
+	}
+}
+
+// ============================================================
+// BB-11: reopen + delete stdio flow
+// ============================================================
+
+func TestBB11_ReopenDeleteStdio(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	client.callTool("add_questions", map[string]interface{}{
+		"session":   "test-session",
+		"questions": []interface{}{"Q1"},
+	})
+	client.callTool("answer_question", map[string]interface{}{
+		"session":  "test-session",
+		"question": "Q1",
+		"answer":   "A1",
+	})
+
+	r1, _ := client.callTool("finalize_questions", map[string]interface{}{
+		"session": "test-session",
+	})
+	if r1["status"] != "ready" {
+		t.Fatalf("expected ready, got %v", r1["status"])
+	}
+
+	archives := poolArchiveDirs(t, poolRoot, "test-session")
+	if len(archives) != 1 {
+		t.Fatalf("expected 1 archived dir, got %d", len(archives))
+	}
+	archivedName := filepath.Base(archives[0])
+
+	r2, isErr2 := client.callTool("reopen_session", map[string]interface{}{
+		"session": archivedName,
+	})
+	if isErr2 {
+		t.Fatalf("reopen_session failed: %v", r2)
+	}
+	if r2["reopened"] != "test-session" {
+		t.Errorf("expected reopened='test-session', got %v", r2["reopened"])
+	}
+
+	r3, isErr3 := client.callTool("delete_session", map[string]interface{}{
+		"session": "test-session",
+		"confirm": true,
+	})
+	if isErr3 {
+		t.Fatalf("delete_session failed: %v", r3)
+	}
+	if r3["deleted"] != "test-session" {
+		t.Errorf("expected deleted='test-session', got %v", r3["deleted"])
+	}
+	if stateFile := poolStateFile(t, poolRoot, "test-session"); stateFile != "" {
+		t.Errorf("pool should be deleted, but state file still exists: %s", stateFile)
+	}
+}
+
+// ============================================================
+// BB-12: amnesia recovery via list_sessions (M07 path)
+// ============================================================
+
+func TestBB12_AmnesiaRecoveryViaList(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	client.callTool("add_questions", map[string]interface{}{
+		"session":   "sr001-ar002-支付回调",
+		"questions": []interface{}{"Q1", "Q2"},
+	})
+
+	// Simulated amnesia: AI only remembers it was working on "支付"
+	r1, _ := client.callTool("list_sessions", map[string]interface{}{})
+	sessions, _ := r1["sessions"].([]interface{})
+	target := ""
+	for _, s := range sessions {
+		name := s.(map[string]interface{})["name"].(string)
+		if strings.Contains(name, "支付") {
+			target = name
+		}
+	}
+	if target != "sr001-ar002-支付回调" {
+		t.Fatalf("should find pool by keyword 支付, got: %q", target)
+	}
+
+	r2, isErr := client.callTool("get_status", map[string]interface{}{
+		"session": target,
+	})
+	if isErr {
+		t.Fatalf("get_status after discovery failed: %v", r2)
+	}
+	if v, ok := getInt(r2["total"]); !ok || v != 2 {
+		t.Errorf("expected total=2 after recovery, got %v", r2["total"])
+	}
 }
