@@ -179,6 +179,14 @@ def _load_release_manifest(stage: Path) -> dict:
         if len(names) != len(set(names)):
             raise UpdateError(f"{RELEASE_MANIFEST} 的 {key} 存在重复名称", "该发布包不可信，已中止")
         lists[key] = names
+    # auxiliary is optional (absent in pre-2.3.2 manifests)
+    raw_aux = data.get("auxiliary", [])
+    if not isinstance(raw_aux, list):
+        raise UpdateError(f"{RELEASE_MANIFEST} 的 auxiliary 必须是列表", "该发布包不可信，已中止")
+    aux_names = [_validate_skill_name(item) for item in raw_aux]
+    if len(aux_names) != len(set(aux_names)):
+        raise UpdateError(f"{RELEASE_MANIFEST} 的 auxiliary 存在重复名称", "该发布包不可信，已中止")
+    lists["auxiliary"] = aux_names
     seen: set[str] = set()
     for key, names in lists.items():
         overlap = seen & set(names)
@@ -336,13 +344,16 @@ def _extract_zip(archive: Path, payload: Path) -> None:
 def _sanity_check(stage: Path, manifest: dict, latest_version: str, skills_root: Path) -> None:
     payload = stage / "payload"
     skills = manifest["skills"]
+    auxiliary = list(manifest.get("auxiliary", []) or [])
+    if not isinstance(auxiliary, list):
+        auxiliary = []
     top_dirs = sorted(p.name for p in payload.iterdir() if p.is_dir())
     top_files = sorted(p.name for p in payload.iterdir() if not p.is_dir())
     if top_files:
         raise UpdateError(f"发布包顶层包含多余文件: {top_files}", "该发布包不可信，已中止")
-    if top_dirs != sorted(skills):
+    if top_dirs != sorted(skills + auxiliary):
         raise UpdateError(
-            f"发布包顶层目录与清单不一致: 包内 {top_dirs}，清单 {sorted(skills)}",
+            f"发布包顶层目录与清单不一致: 包内 {top_dirs}，清单 {sorted(skills + auxiliary)}",
             "该发布包不可信，已中止",
         )
     for name in skills:
