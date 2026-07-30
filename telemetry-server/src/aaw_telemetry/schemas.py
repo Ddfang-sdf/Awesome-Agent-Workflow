@@ -221,6 +221,61 @@ IssueStatus = Literal["todo", "in_progress", "resolved"]
 IssuePriority = Literal["low", "medium", "high"]
 
 
+class IssueTextNode(StrictModel):
+    type: Literal["text"]
+    text: str = Field(max_length=10_000)
+
+
+class IssueImageNode(StrictModel):
+    type: Literal["image"]
+    image_id: uuid.UUID
+    alt: str = Field(min_length=1, max_length=100)
+
+    @field_validator("alt")
+    @classmethod
+    def strip_alt(cls, value: str) -> str:
+        return value.strip()
+
+
+IssueDescriptionNode = Annotated[
+    IssueTextNode | IssueImageNode,
+    Field(discriminator="type"),
+]
+
+
+class IssueDescriptionDocument(StrictModel):
+    version: Literal[1] = 1
+    nodes: list[IssueDescriptionNode] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_document_limits(self) -> IssueDescriptionDocument:
+        text = "".join(node.text for node in self.nodes if isinstance(node, IssueTextNode))
+        if len(text) > 10_000:
+            raise ValueError("visible description text exceeds 10000 characters")
+        image_ids = [
+            node.image_id for node in self.nodes if isinstance(node, IssueImageNode)
+        ]
+        if len(image_ids) > 10:
+            raise ValueError("description contains more than 10 images")
+        if len(image_ids) != len(set(image_ids)):
+            raise ValueError("the same image cannot appear more than once")
+        return self
+
+
+def issue_document_text(document: IssueDescriptionDocument) -> str:
+    return "".join(
+        node.text for node in document.nodes if isinstance(node, IssueTextNode)
+    ).strip()
+
+
+def issue_document_image_ids(document: IssueDescriptionDocument | None) -> list[uuid.UUID]:
+    if document is None:
+        return []
+    return [
+        node.image_id for node in document.nodes if isinstance(node, IssueImageNode)
+    ]
+
+
 class IssueCreate(StrictModel):
     title: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=10_000)
@@ -232,6 +287,7 @@ class IssueCreate(StrictModel):
     workflow_run_id: uuid.UUID | None = None
     sr: str | None = Field(default=None, max_length=128)
     ar: str | None = Field(default=None, max_length=128)
+    description_doc: IssueDescriptionDocument | None = None
 
     @field_validator("title", "description", "reporter")
     @classmethod
@@ -246,6 +302,15 @@ class IssueCreate(StrictModel):
     def strip_optional_text(cls, value: str | None) -> str | None:
         return value.strip() if value and value.strip() else None
 
+    @model_validator(mode="after")
+    def validate_description_document(self) -> IssueCreate:
+        if (
+            self.description_doc is not None
+            and issue_document_text(self.description_doc) != self.description
+        ):
+            raise ValueError("description must match the visible text in description_doc")
+        return self
+
 
 class IssueUpdate(StrictModel):
     title: str | None = Field(default=None, min_length=1, max_length=100)
@@ -258,6 +323,8 @@ class IssueUpdate(StrictModel):
     workflow_run_id: uuid.UUID | None = None
     sr: str | None = Field(default=None, max_length=128)
     ar: str | None = Field(default=None, max_length=128)
+    description_doc: IssueDescriptionDocument | None = None
+    version: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def require_change(self) -> IssueUpdate:
@@ -279,3 +346,12 @@ class IssueUpdate(StrictModel):
     @classmethod
     def strip_updated_optional_text(cls, value: str | None) -> str | None:
         return value.strip() if value and value.strip() else None
+
+    @model_validator(mode="after")
+    def validate_description_document(self) -> IssueUpdate:
+        if self.description_doc is not None:
+            if self.description is None:
+                raise ValueError("description is required with description_doc")
+            if issue_document_text(self.description_doc) != self.description:
+                raise ValueError("description must match the visible text in description_doc")
+        return self
