@@ -17,6 +17,7 @@ from ..models import DevRun, TelemetryMessage, WorkflowRun
 
 @dataclass
 class Filters:
+    workflow_kind: str
     from_date: date
     to_date: date
     repositories: list[str]
@@ -42,6 +43,7 @@ def make_filters(
     versions: list[str],
     srs: list[str],
     ars: list[str],
+    workflow_kind: str = "aaw",
 ) -> Filters:
     today = datetime.now(UTC).date()
     end = to_date or today
@@ -51,6 +53,7 @@ def make_filters(
     if (end - start).days > 3660:
         raise ApiError(400, "INVALID_FILTER", "date range is too large")
     return Filters(
+        workflow_kind,
         start,
         end,
         repositories,
@@ -67,6 +70,7 @@ def apply_workflow_filters(statement, filters: Filters, *, include_dates: bool =
             WorkflowRun.started_at >= filters.start,
             WorkflowRun.started_at < filters.end_exclusive,
         )
+    statement = statement.where(WorkflowRun.workflow_kind == filters.workflow_kind)
     for column, values in (
         (WorkflowRun.project_key, filters.repositories),
         (WorkflowRun.sr, filters.srs),
@@ -126,7 +130,8 @@ class QueryService:
         if not workflow_ids:
             return []
         statement = select(TelemetryMessage).where(
-            TelemetryMessage.workflow_run_id.in_(workflow_ids)
+            TelemetryMessage.workflow_run_id.in_(workflow_ids),
+            TelemetryMessage.workflow_kind == filters.workflow_kind,
         )
         for column, values in (
             (TelemetryMessage.repository, filters.repositories),

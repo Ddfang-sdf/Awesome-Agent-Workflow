@@ -49,7 +49,7 @@ sr-init → sr-design → ar-split
 sr-init
   → sr-design
   → sr-design-gate
-      ├─ pass    → 用户确认 → ar-split
+      ├─ pass    → ar-split
       ├─ fail    → 修正 SR-design → 重新执行 Gate
       └─ blocked → 补齐输入或用户决策 → 重新执行 Gate
 ```
@@ -60,17 +60,19 @@ sr-init
 
 ```text
 sr-design → sr-design-gate：user_confirm=skip
-sr-design-gate → ar-split：user_confirm=must
+sr-design-gate → ar-split：user_confirm=skip
 ```
 
 `sr-design` Skill 自身已经包含用户审核和定稿循环。文档定稿后应立即执行 Gate；
-Gate 通过后，再由用户确认是否正式放行到 AR 拆分，避免连续进行两次等价确认。
+Gate 通过后直接生成 `ar-split`，避免连续进行两次等价确认。Gate 在执行 `done` 之前
+向用户输出 `summary` 六项计数、原始需求反查结论和报告路径，这只是告知，不等待用户
+答复，也不阻塞流程。
 
 ### 3.3 结论状态
 
 | 结论 | 提交值 | 含义 | 是否生成 ar-split |
 |---|---|---|---|
-| 通过 | `pass` | 所有适用维度达标，无阻断冲突 | 是，先等待用户确认 |
+| 通过 | `pass` | 所有适用维度达标，无阻断冲突 | 是，直接生成 |
 | 不通过 | `fail` | 文档存在，但需要整改 | 否 |
 | 阻塞 | `blocked` | 缺少必要输入或外部决策，无法完成判断 | 否 |
 
@@ -149,7 +151,7 @@ description: >
 6. 执行跨章节一致性检查；
 7. 对关键流程、契约和 AR 拆分进行反向追踪；
 8. 汇总冲突、阻断问题和整改清单；
-9. 按需决定是否创建或更新独立门禁结果文件；
+9. 生成或更新独立门禁结果文件；
 10. 将中文结论映射为 `pass`、`fail` 或 `blocked`，写入 data file 并执行完成命令。
 
 Gate 必须维护 todo list，并在每项检查完成后更新状态。不得跳过事实台账或一致性
@@ -173,20 +175,21 @@ input:
 
 output:
   - path: ".sdd/{SR}/SR-design-gate.md"
-    required: false
+    required: true
 
 data_prompt:
   description: |
     提交 SR 设计门禁结论。
-    首次检查零问题时不生成 Markdown，report 填 null 并提交紧凑 summary。
-    存在任意发现或历史报告时必须创建或更新报告并填写路径。
-    只有结论为通过时提交 gate_result=pass。
-    不通过或阻塞时先写报告和 data file，再执行 done；CLI reject 是预期结果，随后停止。
+    每一轮检查都必须生成或更新门禁报告，report 恒为实际报告路径，不得填 null，
+    并提交完整 summary。
+    只有结论为通过时提交 gate_result=pass；
+    不通过或阻塞时先写报告和 data file，再执行 done，CLI reject 是预期结果，
+    随后停止且不得推进到 ar-split。
 ```
 
-`software_architecture.md` 和 `SR-design.md` 必须为 required。门禁报告是可选输出，
-但可选不代表 Gate 可跳过；`check_deliverables` 不得因为旧报告存在而把 Gate 标记为
-可跳过。
+`software_architecture.md` 和 `SR-design.md` 必须为 required。门禁报告也是 required
+输出，缺失时 `done` 会被 CLI 拒绝并报“缺少 required output”；`check_deliverables`
+不得因为旧报告存在而把 Gate 标记为可跳过。
 
 ## 八、工作流配置
 
@@ -213,7 +216,7 @@ sr-design-gate:
   choices:
     - when: data.gate_result == 'pass'
       to: ar-split
-      user_confirm: must
+      user_confirm: skip
 
   reject:
     - when: data.gate_result == 'fail'
@@ -240,11 +243,11 @@ sr-design-gate:
         example: "可进入 AR 拆分"
 
       report:
-        description: "门禁报告路径；仅首次检查零问题且无历史报告时填 null。"
-        example: null
+        description: "门禁结果文件路径；每轮检查都必须生成或更新报告，不得填 null。"
+        example: ".sdd/SR-001/SR-design-gate.md"
 
       summary:
-        description: "门禁紧凑统计；无论是否生成 Markdown 都必须填写。"
+        description: "门禁紧凑统计；必须与本轮报告和最终结论一致。"
         example:
           unqualified_dimensions: 0
           p0_conflicts: 0
@@ -262,7 +265,8 @@ Gate 每次都从 `<skill-dir>/../sr-design/reference/design-template.md` 读取
 作为唯一的章节、表格和占位符来源。该路径相对于已安装的 Gate Skill 解析，不受用户
 项目当前工作目录影响。不得在脚本、checklist 或其他门禁材料中硬编码模板章节号、AR
 表格列或占位符规则。required input、模板或 checklist 缺失、不可读时结论为 `blocked`；
-需要生成报告但报告模板缺失、不可读时同样为 `blocked`。不得依赖旧模板记忆继续检查。
+报告模板是无条件必读材料，缺失、不可读时同样为 `blocked`。不得依赖旧模板记忆继续
+检查。
 
 对照模板检查：
 
@@ -274,8 +278,8 @@ Gate 每次都从 `<skill-dir>/../sr-design/reference/design-template.md` 读取
 6. 架构基线和 SR 设计是否可读。
 
 这不是独立脚本通过即可放行的机械关卡。Gate 需要结合 checklist 的语义审查、事实
-台账和跨章节一致性矩阵给出结论。有发现时写入结果看板；零问题且无历史报告时只写入
-紧凑 JSON 统计。
+台账和跨章节一致性矩阵给出结论。有发现时写入结果看板；零问题时仍写入报告，至少包含
+`summary` 六项计数和原始需求反查结论。
 
 ## 十、准入维度
 
@@ -464,17 +468,19 @@ P2 可以作为非阻断改进项，不阻止通过。
 
 ## 十四、门禁结果看板
 
-### 14.0 按需生成规则
+### 14.0 恒定生成规则
 
-完整门禁检查始终执行，但 Markdown 结果按需生成：
+完整门禁检查始终执行，Markdown 结果也恒定生成：
 
-- 本轮没有 P0/P1/P2、待确认或阻断问题，且不存在历史报告：不创建结果文件；
-- 本轮存在任意发现，包括不阻断通过的 P2：创建或更新结果文件；
+- 本轮零问题：同样创建或更新结果文件，至少写入 `summary` 六项计数和原始需求反查
+  结论（逐项列出原文条目及其在 `SR-design.md` 中的设计落点，以及被裁剪需求的处置
+  记录和用户确认来源）；
+- 本轮存在任意发现，包括不阻断通过的 P2：创建或更新结果文件，逐项记录问题和证据；
 - 存在历史报告时，即使本轮全部修复，也要更新报告并逐项关闭历史问题；
 - `fail` 或 `blocked` 必须先写报告，再写 data file 并执行 done；CLI reject 后结束本轮执行。
 
-可选报告不能作为跳过 Gate 的依据。首次零问题通过时，工作单 data file 中的紧凑
-`summary` 是本轮结论记录。
+报告是 required 交付件，缺失时 `done` 会被 CLI 拒绝，也不能作为跳过 Gate 的依据。
+零问题通过时，报告和工作单 data file 中的 `summary` 共同构成本轮结论记录。
 
 ### 14.1 总结看板
 
@@ -570,16 +576,16 @@ AND 验收标准与设计一致
 
 不能出现“各章节分别达标，但文档内部一致性未达标，整体仍通过”。
 `summary.unqualified_dimensions`、`p0_conflicts`、`p1_conflicts`、`pending_questions` 和
-`blocking_issues` 必须全部为 0。`p2_findings` 可以大于 0，但此时必须生成或更新报告，
-并在 `report` 中填写实际路径。
+`blocking_issues` 必须全部为 0。`p2_findings` 可以大于 0。任何结论下都必须生成或更新
+报告，并在 `report` 中填写实际路径。
 
 ## 十六、完成后回调
 
 本节只适用于 `aaw-workflow` 编排调用。独立运行 Skill 时，不执行 data file 或
-`commands.done` 回调，只在当前会话返回结论，并按按需报告规则处理报告。
+`commands.done` 回调，只在当前会话返回结论，并按恒定报告规则处理报告。
 
-编排调用时先处理工作单 `output`：需要报告则生成或更新门禁结果文件；首次零问题且
-没有历史报告时不创建文件。随后构造完整门禁数据，写入工作单 data file 并执行
+编排调用时先处理工作单 `output`：生成或更新门禁结果文件。该文件是 required 交付件，
+缺失时 `done` 会被 CLI 拒绝。随后构造完整门禁数据，写入工作单 data file 并执行
 `commands.done`。不记得 SR 号或无法定位当前工作单时，先执行 `aaw status --json`，
 不得猜测路径。
 
@@ -591,7 +597,7 @@ AND 验收标准与设计一致
 {
   "gate_result": "pass",
   "recommendation": "可进入 AR 拆分",
-  "report": null,
+  "report": ".sdd/SR-001/SR-design-gate.md",
   "summary": {
     "unqualified_dimensions": 0,
     "p0_conflicts": 0,
@@ -603,11 +609,11 @@ AND 验收标准与设计一致
 }
 ```
 
-`report=null` 只适用于首次检查零问题且没有历史报告。存在 P2 或历史问题闭环时，结论
-可以是 `pass`，但 `report` 必须填写实际报告路径。
+`report` 必须填写工作单 `output` 的实际报告路径，零问题通过时也不得填 `null`。
 
-执行工作单的 `commands.done`。如果返回 `state=awaiting_user_confirm`，停止并等待
-`aaw-workflow` 询问用户是否放行到 `ar-split`。
+执行 `commands.done` 前，先向用户输出 `summary` 六项计数、原始需求反查结论和报告
+路径；这只是告知，不等待用户答复，也不因此暂停。`gate_result=pass` 后 CLI 直接生成
+`ar-split`，不再进入 `awaiting_user_confirm`。
 
 ### 16.2 不通过
 
@@ -665,8 +671,8 @@ Gate step 保持未完成，补齐输入或决策后在同一步骤复检。
 
 ### 16.4 Rollback 约束
 
-不要自动执行 `aaw rollback`。只有用户明确要求重走上游节点，或已经生成需要废弃的
-下游 step 时，才使用 rollback。
+不要自动执行 `aaw rollback`。只有用户明确要求重走上游节点时，才先获取 rollback
+预览，并让用户选择保留成果物返工或删除 CLI 登记的成果物后重做。
 
 ## 十七、多轮整改与复检
 
@@ -690,7 +696,7 @@ Gate 不通过
 不得删除、重编号或用新的泛化描述掩盖上一轮问题。
 
 上一轮存在报告而本轮全部通过时，必须更新原报告并关闭历史问题；不能保留一份仍显示
-“不通过”的旧报告，同时提交无报告的 `pass`。
+“不通过”的旧报告，同时提交 `pass`。
 
 ## 十八、兼容性
 
@@ -723,13 +729,14 @@ rollback 到 `sr-design`，再按新流程生成 Gate。
 
 1. `sr-design` 完成后生成 `sr-design-gate`；
 2. Gate 工作单包含两个 required input；
-3. 门禁报告是 optional，旧报告存在也不能跳过 Gate；
-4. 首次零问题时不生成报告也能 `pass`；
-5. 有 P2、P0/P1、待确认、阻塞或历史报告时创建或更新报告；
-6. `pass` 后进入等待用户确认，用户确认后生成 `ar-split`；
+3. 门禁报告是 required，旧报告存在也不能跳过 Gate；
+4. 零问题时缺少报告，`done` 会被 CLI 以“缺少 required output”拒绝；
+5. 任何结论下都创建或更新报告，包括零问题、P2、P0/P1、待确认、阻塞和历史报告场景；
+6. `pass` 后直接生成 `ar-split`，不进入等待用户确认；
 7. `fail` 和 `blocked` 不生成下游并保持 Gate unfinished；
 8. AR 直接入口不经过 Gate；
-9. rollback 到 `sr-design` 删除 Gate 及其已有结果文件；
+9. rollback 到 `sr-design` 时先返回影响预览；选择 `preserve` 保留 Gate 及其结果文件，
+   选择 `discard` 才删除目标及下游登记成果；
 10. workflow 目录移动后输入输出仍按相对路径解析。
 
 ### 19.2 冲突 fixture
@@ -767,8 +774,8 @@ Gate 必须发现全部 P0/P1 问题，定位冲突章节并给出整改要求�
 而放行。
 
 评测 prompt 必须覆盖冲突样本和通过样本：冲突样本要求 10/10 命中且结论为 `fail`；
-通过样本要求 `gate_result=pass`、`report=null`、summary 全部为 0。建议以固定模型配置
-各运行 3 至 5 次。
+通过样本要求 `gate_result=pass`、`report` 为实际报告路径、summary 全部为 0。建议以固定
+模型配置各运行 3 至 5 次。
 
 ### 19.3 通过 fixture
 
@@ -810,12 +817,12 @@ Mermaid fence 等缺陷样本，确认 Gate 按新模板输出可定位的问题
 
 1. 新建 SR workflow 必须经过 `sr-design-gate`；
 2. Gate 不通过或阻塞时不能生成 `ar-split`；
-3. 首次零问题时无需生成 Markdown，但必须提交紧凑 summary；
-4. 存在任意发现或历史报告时必须创建或更新门禁报告；
+3. 每一轮检查都生成或更新门禁报告，并提交完整 summary；
+4. 零问题时报告仍写入 summary 六项计数和原始需求反查结论；
 5. 任一 P0/P1 文档内部冲突存在时不能通过；
 6. AR ID、边界、依赖、接口、数据、状态、配置和验收可以跨章节追踪；
 7. 上一轮门禁问题不会在复检中静默消失；
-8. Gate 通过后仍需用户确认才能进入 `ar-split`；
+8. Gate 通过后直接进入 `ar-split`，不再等待用户确认；
 9. AR 直接入口保持原行为；
 10. 已有 workflow 不被自动破坏；
 11. 新 Skill 能进入完整自动更新包。

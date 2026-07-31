@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from ..config import ProjectRegistry, Settings
+from ..config import Settings
 from ..errors import ApiError
 from ..logging import request_id_var
 from ..schemas import DiffUploadResponse
-from ..services.attribution_service import AttributionService
 from ..services.objects import ObjectService
 
 logger = logging.getLogger("aaw_telemetry.objects.diff")
@@ -25,13 +25,16 @@ def _milliseconds(value) -> int:
 def build_objects_router(
     session_dependency,
     settings: Settings,
-    projects: ProjectRegistry,
-    attribution_service: AttributionService,
+    attribution_notifier: Callable[[], None] | None = None,
+    *,
+    prefix: str = "/api/v1/objects",
+    workflow_kind: str = "aaw",
+    diff_path: str = "/step-diffs/{message_id}",
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/v1/objects", tags=["objects"])
+    router = APIRouter(prefix=prefix, tags=["objects"])
 
     @router.put(
-        "/step-diffs/{message_id}",
+        diff_path,
         response_model=DiffUploadResponse,
         summary="上传并确认开发步骤的 Git Diff",
         description=(
@@ -59,9 +62,8 @@ def build_objects_router(
             upload = await ObjectService(
                 session,
                 settings,
-                projects,
-                attribution_service,
-            ).upload_diff(message_id, request.stream())
+                attribution_notifier,
+            ).upload_diff(message_id, request.stream(), workflow_kind=workflow_kind)
         except ApiError as exc:
             logger.warning(
                 "Dev Patch 上传或校验失败，文件未确认",

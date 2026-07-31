@@ -1,6 +1,6 @@
 ---
 name: sr-design-gate
-version: "2.3.2.1"
+version: "2.3.2.2"
 description: 对 SR-design.md 进行设计质量门禁，检查需求范围、架构边界、接口与数据契约、AR 可拆分性、验收闭环、风险处置以及文档跨章节一致性。用于 SR 设计完成后、进入 ar-split 前判断设计是否具备下游拆分条件，并输出通过、不通过或阻塞结论。
 ---
 
@@ -19,13 +19,15 @@ description: 对 SR-design.md 进行设计质量门禁，检查需求范围、�
 
 本节最多询问一次，不得重复打扰。
 
+若工作单输出已存在，仍按当前要求完整执行：先读取并评估已有成果，复用仍有效的信息和已确认答案，可局部修改或整体重写，并写回原路径。
+
 # SR 设计门禁
 
 ## 职责边界
 
 - 直接在当前主会话执行，不要委托给子 Agent。
-- 读取并审查正式 `SR-design.md` 和 `.sdd/software_architecture.md`，但不得修改它们。
-- 完整执行门禁检查，并按“按需报告”规则决定是否写入工作单 `output` 指定的 `SR-design-gate.md`。
+- 读取并审查正式 `SR-design.md`、`.sdd/software_architecture.md` 和原始需求 `original-requirement.md`，但不得修改它们。
+- 完整执行门禁检查，并按“门禁报告”规则生成或更新工作单 `output` 指定的 `SR-design-gate.md`。
 - 不替用户裁决范围、架构、AR 边界、契约或验收阈值冲突；需要外部决策时结论为 `阻塞`。
 - 不自动 rollback。整改后在同一个 Gate step 上重新执行。
 
@@ -33,8 +35,8 @@ description: 对 SR-design.md 进行设计质量门禁，检查需求范围、�
 
 - 从当前工作单读取 `input`、`output`、`data_file.path` 和 `commands.done`，不得自行猜测工作流路径。
 - SR 设计模板固定从相邻 Skill 的 `<skill-dir>/../sr-design/reference/design-template.md` 读取。
-- 门禁规则从 `<skill-dir>/references/gate-checklist.md` 读取；密码学适用性判定为涉及时，追加执行 `<skill-dir>/references/crypto-gate-checklist.md`；需要生成报告时，从 `<skill-dir>/references/gate-result-template.md` 读取模板。
-- 任一 required input、SR 设计模板或门禁规则清单缺失、不可读时，结论必须为 `阻塞`；需要生成报告但报告模板缺失、不可读时同样为 `阻塞`。不得改用记忆中的旧模板或仓库相对路径继续检查。
+- 门禁规则从 `<skill-dir>/references/gate-checklist.md` 读取；密码学适用性判定为涉及时，追加执行 `<skill-dir>/references/crypto-gate-checklist.md`；门禁报告模板固定从 `<skill-dir>/references/gate-result-template.md` 读取。
+- 任一 required input、SR 设计模板、门禁规则清单或报告模板缺失、不可读时，结论必须为 `阻塞`。不得改用记忆中的旧模板或仓库相对路径继续检查。
 
 ## 强制检查流程
 
@@ -46,10 +48,16 @@ description: 对 SR-design.md 进行设计质量门禁，检查需求范围、�
 4. 以当前模板作为章节、占位符和表格结构的唯一依据，逐章节检查完整性、残留占位符、空表格以及未闭合的 Markdown/Mermaid fence。
 5. 在本轮分析上下文中建立临时关键事实台账，抽取模块、接口、数据、状态、配置、AR 和指标；判定涉及密码算法时同步标记传递敏感参数的接口。该台账不是独立交付物，只有触发报告规则时才随问题和证据写入门禁报告。
 6. 按「变更影响分析检查」和「分级一致性」规则检查 SR 设计的变更影响分析与 E0-E3 分级结论。
-7. 逐项检查 checklist 定义的全部准入维度；涉及密码算法时按密码学专项清单逐节复核。
-8. 逐对象执行全部跨章节一致性链，并反向追踪需求、AR、契约、状态、配置、DFX 与验收；不得抽样。
-9. 汇总未达标维度、P0/P1/P2、待确认项和阻断项，按“结论判定”生成一致的结论与 `summary`。
-10. 按“按需报告”处理门禁报告，再按“完成后回调”提交工作流数据。
+7. 执行原始需求反查：读取完整 `original-requirement.md`（不得仅依据 `SR-design.md` 中已整理
+   的需求列表），按原文中的明确条目、段落和约束逐项检查——每项明确需求必须在 `SR-design.md`
+   中有可定位的设计落点，且落点关联到 AR 或明确说明由 SR 整体承接；原文明确要求的可验收行为
+   必须在 SR 验收标准中有覆盖；被裁剪（范围外/延期/不实现）的需求必须在需求追溯表中有显式
+   记录（原文引用、处置结论、用户确认来源），Gate 只认文档内的显式记录，缺记录或缺用户确认
+   来源的裁剪一律视为静默省略。
+8. 逐项检查 checklist 定义的全部准入维度；涉及密码算法时按密码学专项清单逐节复核。
+9. 逐对象执行全部跨章节一致性链，并反向追踪需求、AR、契约、状态、配置、DFX 与验收；不得抽样。
+10. 汇总未达标维度、P0/P1/P2、待确认项和阻断项，按“结论判定”生成一致的结论与 `summary`。
+11. 按“门禁报告”生成或更新门禁报告，再按“完成后回调”提交工作流数据。
 
 ## 结论判定
 
@@ -58,26 +66,24 @@ description: 对 SR-design.md 进行设计质量门禁，检查需求范围、�
 | 中文结论 | `gate_result` | 判定条件 |
 |---|---|---|
 | 通过 | `pass` | 所有适用维度达标，P0/P1、待确认项和阻断项均为 0，设计可执行地拆分 AR |
-| 不通过 | `fail` | 存在可通过修改 SR 设计解决的未达标维度、P0/P1 冲突或其他阻断性设计缺陷；包括涉及既有行为变更但缺失变更影响分析、E0-E3 分级与逐项分析不一致，以及涉及密码算法但未完成敏感参数识别 |
-| 阻塞 | `blocked` | 缺少必要输入，或必须由用户、上游系统提供事实或作出决策，当前无法完成判断 |
+| 不通过 | `fail` | 存在可通过修改 SR 设计解决的未达标维度、P0/P1 冲突或其他阻断性设计缺陷；包括明确原始需求没有设计落点或被静默省略（记 P1）、涉及既有行为变更但缺失变更影响分析、E0-E3 分级与逐项分析不一致，以及涉及密码算法但未完成敏感参数识别 |
+| 阻塞 | `blocked` | 缺少必要输入（含原始需求 `original-requirement.md` 缺失或不可读），或必须由用户、上游系统提供事实或作出决策（含无法判断某段原文是否属于本次范围且没有用户确认），当前无法完成判断 |
 
 - 任一适用维度未达标或存在任一 P0/P1 冲突，均不得通过。
 - 无法确认差异是否仅属于表达差异时，记录为待确认项，不得降为 P2。
-- P2 不阻断通过，但存在 P2 时必须生成报告。
-- `pass` 时 `summary.unqualified_dimensions`、`p0_conflicts`、`p1_conflicts`、`pending_questions` 和 `blocking_issues` 必须全部为 0；`p2_findings` 可以大于 0，但此时 `report` 必须是实际报告路径。
+- P2 不阻断通过。
+- `pass` 时 `summary.unqualified_dimensions`、`p0_conflicts`、`p1_conflicts`、`pending_questions` 和 `blocking_issues` 必须全部为 0；`p2_findings` 可以大于 0。
 - 所有 `summary` 数值必须与本轮报告和最终结论一致。
 
-## 按需报告
+## 门禁报告
 
-完整检查始终必须执行，不能因为报告是可选输出而跳过 Gate。检查结束后按以下规则处理：
+完整检查始终必须执行。每一轮检查都必须生成或更新工作单 `output` 指定的 `SR-design-gate.md`，`report` 恒为实际报告路径，不允许为 `null`：
 
-- 本轮没有 P0/P1/P2、待确认或阻断问题，且不存在历史门禁报告：不要创建 `SR-design-gate.md`，提交时 `report=null`。
-- 本轮存在任意问题，包括不阻断通过的 P2：使用报告模板创建或更新 `SR-design-gate.md`。
-- 密码学适用性判定为涉及时，无论是否零问题都必须生成或更新报告：专项复核结果和适用性判定依据需要留档，不适用零问题免报告规则。
+- 本轮存在任意问题，包括不阻断通过的 P2：使用报告模板创建或更新报告，逐项记录问题和证据。
+- 本轮零问题：同样创建或更新报告，至少写入 `summary` 六项计数和原始需求反查结论（逐项列出原文条目及其在 `SR-design.md` 中的设计落点，以及被裁剪需求的处置记录和用户确认来源）。
+- 密码学适用性判定为涉及时，专项复核结果和适用性判定依据必须一并留档。
 - 存在历史门禁报告时，即使本轮问题已全部修复，也要更新原报告，逐项关闭历史问题并记录最终结论。
-- `fail` 或 `blocked` 时必须生成或更新报告，不允许只在会话中输出整改清单。
-
-报告不存在不代表 Gate 可以跳过。零问题通过时，只提交紧凑 JSON 统计。
+- `fail` 或 `blocked` 时同样必须生成或更新报告，不允许只在会话中输出整改清单。
 
 ## 多轮复检
 
@@ -88,24 +94,24 @@ description: 对 SR-design.md 进行设计质量门禁，检查需求范围、�
 
 ## 完成后回调
 
-> 若不处于 `aaw-workflow` 编排中，请忽略本节，直接在当前会话返回门禁结论，并按“按需报告”规则处理报告。
+> 若不处于 `aaw-workflow` 编排中，请忽略本节，直接在当前会话返回门禁结论，并按“门禁报告”规则处理报告。
 
 本 Skill 由 `aaw-workflow` 编排调用时，按以下顺序衔接：
 
-1. 先按“按需报告”规则处理工作单 `output`：需要报告时生成或更新门禁结果文件；首次零问题、没有历史报告且判定不涉及密码算法时不创建文件。
+1. 先按“门禁报告”规则处理工作单 `output`：生成或更新门禁结果文件。该文件是 required 交付件，缺失时 `done` 会被 CLI 拒绝。
 2. 根据中文结论构造完整门禁数据，将 JSON 写入工作单提供的 `data_file.path`，再执行工作单提供的 `commands.done`。
-3. 结论为 `通过` 时提交 `gate_result=pass`。如果 CLI 返回 `state=awaiting_user_confirm`，停止并让 `aaw-workflow` 询问用户是否放行到 `ar-split`。
+3. 结论为 `通过` 时提交 `gate_result=pass`。执行 `done` 前先向用户输出 `summary` 六项计数、原始需求反查结论和报告路径；这只是告知，不要等待用户答复，也不要因此暂停推进到 `ar-split`。
 4. 结论为 `不通过` 时提交 `gate_result=fail`。CLI 的 `reject` 及非零退出是预期结果；停止本轮执行，保持当前 Gate step 未完成，修正 SR 设计后在同一步骤复检。
 5. 结论为 `阻塞` 时提交 `gate_result=blocked`。CLI 的 `reject` 及非零退出是预期结果；停止本轮执行，保持当前 Gate step 未完成，补齐必要输入或外部决策后在同一步骤复检。
 6. 不要自动执行 `aaw rollback`。只有用户明确要求重走上游节点，或已经生成需要废弃的下游 step 时，才使用 rollback。
 
-首次零问题且没有历史报告的 `pass` 数据示例：
+零问题通过的 `pass` 数据示例：
 
 ```json
 {
   "gate_result": "pass",
   "recommendation": "可进入 AR 拆分",
-  "report": null,
+  "report": ".sdd/SR-001/SR-design-gate.md",
   "summary": {
     "unqualified_dimensions": 0,
     "p0_conflicts": 0,
@@ -117,6 +123,6 @@ description: 对 SR-design.md 进行设计质量门禁，检查需求范围、�
 }
 ```
 
-- 存在 P2、历史报告或判定涉及密码算法时，`report` 必须填写工作单 `output` 的实际报告路径。
+- `report` 必须填写工作单 `output` 的实际报告路径，任何结论下都不得填 `null`。
 - `fail` 和 `blocked` 也必须提交完整的 `recommendation`、`report` 和 `summary`，不得只提交 `gate_result`。
 - 不记得 SR 号或无法定位当前工作单时，先执行 `aaw status --json`，不得猜测路径。

@@ -1,31 +1,38 @@
-"""Attribution service abstraction for dependency inversion.
-
-High-level modules depend on this interface. The GitHub build injects
-MockAttributionService, while intranet deployments may inject a real service.
-"""
+"""HTTP boundary between the telemetry backend and attribution service."""
 
 from __future__ import annotations
 
 import abc
-from datetime import datetime
 
-from sqlalchemy.orm import Session
+from aaw_contracts import (
+    CONTRACT_VERSION,
+    AttributionRequest,
+    AttributionResult,
+    DevelopmentContext,
+    DiffPayload,
+    ProjectContext,
+    TelemetryContext,
+)
 
-from ..models import DevRun
+
+class AttributionServiceError(RuntimeError):
+    """A remote attribution call failed or returned an invalid contract."""
 
 
 class AttributionService(abc.ABC):
-    """Define attribution behavior after Diff confirmation and during retries."""
-
     @abc.abstractmethod
-    def on_diff_confirmed(
-        self,
-        session: Session,
-        dev_run: DevRun,
-        now: datetime,
-    ) -> None:
-        """Trigger attribution after a Diff has been confirmed."""
+    def attribute(self, request: AttributionRequest) -> AttributionResult:
+        """Calculate attribution without accessing telemetry persistence."""
 
-    @abc.abstractmethod
-    def start_retry_scheduler(self, settings, projects) -> None:
-        """Start retry scheduling when the concrete service requires it."""
+
+__all__ = [
+    "CONTRACT_VERSION",
+    "AttributionRequest",
+    "AttributionResult",
+    "AttributionService",
+    "AttributionServiceError",
+    "DevelopmentContext",
+    "DiffPayload",
+    "ProjectContext",
+    "TelemetryContext",
+]

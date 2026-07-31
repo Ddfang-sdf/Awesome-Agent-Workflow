@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from shlex import quote
@@ -476,7 +478,12 @@ class WorkflowManager:
 
     # ---- bootstrap ----
 
-    def start(self, entry: str, vars_: dict[str, Any]) -> Workflow:
+    def start(
+        self,
+        entry: str,
+        vars_: dict[str, Any],
+        requirement_content: str | None = None,
+    ) -> Workflow:
         entry_def = self.entrypoints.get(entry)
         if not entry_def:
             raise WorkflowError(f"入口不存在: {entry}")
@@ -490,30 +497,76 @@ class WorkflowManager:
         if not sr:
             raise WorkflowError("缺少 SR 变量，无法创建 workflow.yaml")
 
-        self.sdd_dir.mkdir(parents=True, exist_ok=True)
-        sr_dir = self.sdd_dir / sr
-        if self._wf_path(sr).exists():
-            raise WorkflowError(f"SR {sr} workflow 已存在")
-        sr_dir.mkdir(parents=True, exist_ok=True)
-        self._data_dir(sr).mkdir(parents=True, exist_ok=True)
+        if entry == "sr" and (requirement_content is None or requirement_content == ""):
+            raise WorkflowError("入口 sr 必须提供非空的原始需求（--requirement-file）")
 
         start_type = entry_def["start"]
         if start_type not in self.templates:
             raise WorkflowError(f"入口 {entry} 指向未知节点: {start_type}")
 
-        wf_vars = dict(vars_)
-        wf_vars["SR"] = sr
-        step1 = _make_step(self.templates[start_type], 1, wf_vars, self.sdd_dir)
-        wf = Workflow(
-            sr=sr,
-            entry=entry,
-            status="in_progress",
-            created_at=datetime.now(timezone.utc).isoformat(),
-            vars=wf_vars,
-            steps=[step1],
-        )
-        self._save(wf)
+        self.sdd_dir.mkdir(parents=True, exist_ok=True)
+        sr_dir = self.sdd_dir / sr
+        if self._wf_path(sr).exists():
+            raise WorkflowError(f"SR {sr} workflow 已存在")
+
+        # Track what this call newly creates so a mid-way failure can roll back
+        # without touching anything that predated the call.
+        created_sr_dir = not sr_dir.exists()
+        wrote_requirement = False
+        try:
+            sr_dir.mkdir(parents=True, exist_ok=True)
+            self._data_dir(sr).mkdir(parents=True, exist_ok=True)
+
+            if requirement_content is not None:
+                wrote_requirement = self._persist_original_requirement(sr, requirement_content)
+
+            wf_vars = dict(vars_)
+            wf_vars["SR"] = sr
+            step1 = _make_step(self.templates[start_type], 1, wf_vars, self.sdd_dir)
+            wf = Workflow(
+                sr=sr,
+                workflow_id=str(uuid.uuid4()),
+                entry=entry,
+                status="in_progress",
+                created_at=datetime.now(timezone.utc).isoformat(),
+                vars=wf_vars,
+                steps=[step1],
+            )
+            self._save(wf)
+            from .runtime_logging import bind_workflow
+
+            bind_workflow(wf.workflow_id, wf.sr, wf.vars.get("AR"))
+        except Exception:
+            self._rollback_start(sr_dir, created_sr_dir, wrote_requirement)
+            raise
         return wf
+
+    def _original_requirement_path(self, sr: str) -> Path:
+        return self.sdd_dir / sr / "original-requirement.md"
+
+    def _persist_original_requirement(self, sr: str, content: str) -> bool:
+        """Write the original requirement verbatim. Idempotent when the target
+        already holds byte-identical content; refuses to overwrite on mismatch.
+
+        Returns True if this call created the file (for rollback tracking).
+        """
+        path = self._original_requirement_path(sr)
+        payload = content.encode("utf-8")
+        if path.exists():
+            if path.read_bytes() == payload:
+                return False
+            raise WorkflowError(
+                f"原始需求文件已存在且内容不一致: .sdd/{sr}/original-requirement.md；"
+                "请确认保留旧文件或手动删除后重启，不会静默覆盖"
+            )
+        path.write_bytes(payload)
+        return True
+
+    def _rollback_start(self, sr_dir: Path, created_sr_dir: bool, wrote_requirement: bool) -> None:
+        if created_sr_dir:
+            shutil.rmtree(sr_dir, ignore_errors=True)
+        elif wrote_requirement:
+            self._original_requirement_path(sr_dir.name).unlink(missing_ok=True)
 
     # ---- load / save ----
 
@@ -521,7 +574,33 @@ class WorkflowManager:
         path = self._wf_path(sr)
         if not path.exists():
             raise WorkflowError(f"SR {sr} 不存在")
-        return Workflow.from_yaml(path)
+        wf = Workflow.from_yaml(path)
+        if not wf.workflow_id:
+            # Preserve the identity used by pre-workflow_id telemetry so an
+            # existing workflow keeps matching its server-side history.
+            from .telemetry import workflow_id as legacy_workflow_id
+            from .telemetry import TelemetryError
+
+            try:
+                wf.workflow_id = legacy_workflow_id(Path.cwd(), wf)
+            except TelemetryError:
+                # A non-Git workspace could not have produced valid legacy
+                # telemetry either.  Give it a deterministic local identity
+                # so status remains usable and the migration is stable.
+                key = f"{Path.cwd().resolve()}\n{wf.sr}\n{wf.created_at}"
+                wf.workflow_id = str(uuid.uuid5(uuid.NAMESPACE_URL, key))
+            self._save(wf)
+        else:
+            try:
+                wf.workflow_id = str(uuid.UUID(wf.workflow_id))
+            except ValueError as exc:
+                raise WorkflowError(
+                    f"SR {sr} workflow_id 非法: {wf.workflow_id!r}"
+                ) from exc
+        from .runtime_logging import bind_workflow
+
+        bind_workflow(wf.workflow_id, wf.sr, wf.vars.get("AR"))
+        return wf
 
     def _save(self, wf: Workflow) -> None:
         wf.to_yaml(self._wf_path(wf.sr))
@@ -1092,7 +1171,7 @@ class WorkflowManager:
 
     # ---- rollback ----
 
-    def rollback(self, wf: Workflow, step_id: int) -> dict[str, Any]:
+    def _rollback_scope(self, wf: Workflow, step_id: int) -> tuple[Step, set[int], list[Step]]:
         if wf.pending_user_confirm and int(wf.pending_user_confirm.get("from_step", -1)) != step_id:
             raise WorkflowError("当前存在待用户确认的流转，请先确认或回退待确认来源 step")
         step = wf.get_step(step_id)
@@ -1111,30 +1190,95 @@ class WorkflowManager:
             if ns:
                 desc_steps.append(ns)
                 queue.extend(self._dependent_step_ids(wf, ns.id))
+        return step, descendants, desc_steps
 
-        deleted_files: list[str] = []
-        dirs_to_check: set[Path] = set()
-        for ds in desc_steps:
-            for item in ds.output:
+    def _rollback_artifacts(self, steps: list[Step]) -> list[dict[str, Any]]:
+        artifacts: dict[str, dict[str, Any]] = {}
+        for owner in steps:
+            for item in owner.output:
                 out_path = item.get("path")
                 if not out_path:
                     continue
-                p = self._resolve(out_path)
-                if p.exists() and p.is_file():
+                artifact = artifacts.setdefault(
+                    out_path,
+                    {
+                        "path": out_path,
+                        "abs_path": str(self._resolve(out_path).resolve()).replace("\\", "/"),
+                        "exists": self._resolve(out_path).exists(),
+                        "owner_step_ids": [],
+                    },
+                )
+                if owner.id not in artifact["owner_step_ids"]:
+                    artifact["owner_step_ids"].append(owner.id)
+        return list(artifacts.values())
+
+    def rollback_preview(self, wf: Workflow, step_id: int) -> dict[str, Any]:
+        step, descendants, desc_steps = self._rollback_scope(wf, step_id)
+        return {
+            "ok": True,
+            "status": "confirmation_required",
+            "target_step": {"id": step.id, "type": step.type, "name": step.name},
+            "invalidated_step_ids": sorted(descendants),
+            "affected_steps": [
+                {"id": item.id, "type": item.type, "name": item.name}
+                for item in [step, *desc_steps]
+            ],
+            "managed_artifacts": self._rollback_artifacts([step, *desc_steps]),
+        }
+
+    def rollback(self, wf: Workflow, step_id: int, artifact_policy: str) -> dict[str, Any]:
+        if artifact_policy not in {"preserve", "discard"}:
+            raise WorkflowError("--artifacts 必须是 preserve 或 discard")
+        step, descendants, desc_steps = self._rollback_scope(wf, step_id)
+        managed_artifacts = self._rollback_artifacts([step, *desc_steps])
+
+        deleted_files: list[str] = []
+        skipped_artifacts: list[dict[str, str]] = []
+        if artifact_policy == "discard":
+            dirs_to_check: set[Path] = set()
+            for artifact in managed_artifacts:
+                p = self._resolve(artifact["path"])
+                if not p.exists():
+                    continue
+                if p.is_file():
                     p.unlink()
                     deleted_files.append(str(p))
                     dirs_to_check.add(p.parent)
-
-        self._cleanup_empty_dirs(dirs_to_check, deleted_files)
+                else:
+                    skipped_artifacts.append(
+                        {
+                            "path": artifact["path"],
+                            "reason": "不是普通文件，CLI 未自动删除",
+                        }
+                    )
+            self._cleanup_empty_dirs(dirs_to_check, deleted_files)
 
         step.finished = False
         step.next = []
+        step.result_data = None
         if wf.pending_user_confirm and int(wf.pending_user_confirm.get("from_step", -1)) == step_id:
             wf.pending_user_confirm = None
         wf.steps = [s for s in wf.steps if s.id not in descendants]
         wf.status = "in_progress"
         self._save(wf)
-        return {"ok": True, "removed": len(descendants), "deleted_files": deleted_files}
+        for artifact in managed_artifacts:
+            artifact["exists_after"] = self._resolve(artifact["path"]).exists()
+        return {
+            "ok": True,
+            "status": "rolled_back",
+            "artifact_policy": artifact_policy,
+            "target_step": {"id": step.id, "type": step.type, "name": step.name},
+            "removed": len(descendants),
+            "invalidated_step_ids": sorted(descendants),
+            "managed_artifacts": managed_artifacts,
+            "deleted_files": deleted_files,
+            "preserved_files": [
+                artifact["abs_path"]
+                for artifact in managed_artifacts
+                if artifact["exists"] and artifact_policy == "preserve"
+            ],
+            "skipped_artifacts": skipped_artifacts,
+        }
 
     def _cleanup_empty_dirs(self, dirs_to_check: set[Path], deleted_files: list[str]) -> None:
         protected = self.sdd_dir.resolve()

@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -52,6 +52,26 @@ class Settings(BaseSettings):
     max_request_bytes: int = 1024 * 1024
     max_patch_bytes: int = 10 * 1024 * 1024
     upload_session_seconds: int = 3600
+    issue_image_max_bytes: int = 5 * 1024 * 1024
+    issue_image_max_count: int = 10
+    issue_image_max_total_bytes: int = 20 * 1024 * 1024
+    issue_image_max_pixels: int = 25_000_000
+    issue_image_max_dimension: int = 12_000
+    issue_image_preview_dimension: int = 1_600
+    issue_image_temp_seconds: int = 86_400
+    issue_image_cleanup_interval_seconds: int = 3_600
+    issue_image_temp_quota_bytes: int = 1024 * 1024 * 1024
+    issue_image_min_free_bytes: int = 2 * 1024 * 1024 * 1024
+    issue_image_uploads_per_minute: int = 20
+    attribution_service_url: str = "http://127.0.0.1:8010"
+    attribution_timeout_seconds: float = 10.0
+    attribution_scan_interval_seconds: float = 3600.0
+    attribution_api_token: SecretStr | None = None
+
+    @field_validator("attribution_api_token", mode="before")
+    @classmethod
+    def empty_attribution_token_is_none(cls, value):
+        return None if value == "" else value
 
     @model_validator(mode="after")
     def load_database_and_validate_limits(self) -> Settings:
@@ -67,6 +87,36 @@ class Settings(BaseSettings):
             raise ValueError("max_patch_bytes must not be smaller than max_request_bytes")
         if not 60 <= self.upload_session_seconds <= 86400:
             raise ValueError("upload_session_seconds must be between 60 and 86400")
+        if self.issue_image_max_bytes < 1024:
+            raise ValueError("issue_image_max_bytes must be at least 1024")
+        if not 1 <= self.issue_image_max_count <= 100:
+            raise ValueError("issue_image_max_count must be between 1 and 100")
+        if self.issue_image_max_total_bytes < self.issue_image_max_bytes:
+            raise ValueError("issue_image_max_total_bytes must fit at least one image")
+        if self.issue_image_max_pixels < 1_000_000:
+            raise ValueError("issue_image_max_pixels must be at least 1000000")
+        if self.issue_image_max_dimension < 1000:
+            raise ValueError("issue_image_max_dimension must be at least 1000")
+        if self.issue_image_preview_dimension < 100:
+            raise ValueError("issue_image_preview_dimension must be at least 100")
+        if not 60 <= self.issue_image_temp_seconds <= 604800:
+            raise ValueError("issue_image_temp_seconds must be between 60 and 604800")
+        if not 60 <= self.issue_image_cleanup_interval_seconds <= 86400:
+            raise ValueError(
+                "issue_image_cleanup_interval_seconds must be between 60 and 86400"
+            )
+        if self.issue_image_temp_quota_bytes < self.issue_image_max_bytes:
+            raise ValueError("issue_image_temp_quota_bytes must fit at least one image")
+        if self.issue_image_min_free_bytes < 0:
+            raise ValueError("issue_image_min_free_bytes must not be negative")
+        if not 1 <= self.issue_image_uploads_per_minute <= 1000:
+            raise ValueError("issue_image_uploads_per_minute must be between 1 and 1000")
+        if not self.attribution_service_url.startswith(("http://", "https://")):
+            raise ValueError("attribution_service_url must use http or https")
+        if not 0.1 <= self.attribution_timeout_seconds <= 300:
+            raise ValueError("attribution_timeout_seconds must be between 0.1 and 300")
+        if not 10 <= self.attribution_scan_interval_seconds <= 3600:
+            raise ValueError("attribution_scan_interval_seconds must be between 10 and 3600")
         return self
 
 

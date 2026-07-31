@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,7 +20,11 @@ from .routers.issues import build_issues_router
 from .routers.objects import build_objects_router
 from .routers.releases import build_releases_router
 from .routers.telemetry import build_telemetry_router
+from .routers.testing_telemetry import build_testing_telemetry_router
+from .services.attribution_scheduler import AttributionScheduler
 from .services.attribution_service import AttributionService
+from .services.issue_images import IssueImageJanitor
+from .services.remote_attribution_service import RemoteAttributionService
 
 logger = logging.getLogger("aaw_telemetry.system")
 
@@ -40,22 +45,50 @@ def create_app(
     engine = engine or build_engine(settings)
     projects = projects or ProjectRegistry.load(settings.projects_file)
     if attribution_service is None:
-        from .services.mock_attribution_service import MockAttributionService
-
-        attribution_service = MockAttributionService()
+        attribution_service = RemoteAttributionService(
+            settings.attribution_service_url,
+            timeout_seconds=settings.attribution_timeout_seconds,
+            api_token=(
+                settings.attribution_api_token.get_secret_value()
+                if settings.attribution_api_token
+                else None
+            ),
+        )
     session_factory = build_session_factory(engine)
     get_session = session_dependency(session_factory)
+    attribution_scheduler = AttributionScheduler(
+        session_factory,
+        settings,
+        projects,
+        attribution_service,
+    )
+    issue_image_janitor = IssueImageJanitor(session_factory, settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        scheduler_task = asyncio.create_task(
+            attribution_scheduler.run(),
+            name="attribution-scheduler",
+        )
+        image_cleanup_task = asyncio.create_task(
+            issue_image_janitor.run(),
+            name="issue-image-janitor",
+        )
         logger.info(
             "Telemetry Server 已启动，可以接收请求",
             extra={"event": "service.started", "version": "0.1.0"},
         )
-        attribution_service.start_retry_scheduler(settings, projects)
         try:
             yield
         finally:
+            attribution_scheduler.stop()
+            issue_image_janitor.stop()
+            try:
+                await asyncio.gather(scheduler_task, image_cleanup_task)
+            finally:
+                close_attribution_service = getattr(attribution_service, "close", None)
+                if close_attribution_service is not None:
+                    close_attribution_service()
             logger.info("Telemetry Server 已停止", extra={"event": "service.stopped"})
 
     app = FastAPI(
@@ -69,16 +102,42 @@ def create_app(
     app.state.log_directory = log_directory
     app.state.engine = engine
     app.state.projects = projects
+    app.state.attribution_service = attribution_service
+    app.state.attribution_scheduler = attribution_scheduler
+    app.state.issue_image_janitor = issue_image_janitor
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_bytes=settings.max_request_bytes,
         max_object_bytes=settings.max_patch_bytes,
+        max_issue_image_bytes=settings.issue_image_max_bytes,
     )
     app.add_middleware(RequestContextMiddleware)
     app.include_router(build_telemetry_router(get_session, projects, settings))
     app.include_router(build_dashboard_router(get_session, projects))
-    app.include_router(build_issues_router(get_session))
-    app.include_router(build_objects_router(get_session, settings, projects, attribution_service))
+    app.include_router(build_testing_telemetry_router(get_session, projects, settings))
+    app.include_router(
+        build_dashboard_router(
+            get_session, projects, prefix="/api/v1/testing", workflow_kind="testing"
+        )
+    )
+    app.include_router(build_issues_router(get_session, settings))
+    app.include_router(
+        build_objects_router(
+            get_session,
+            settings,
+            attribution_scheduler.notify,
+        )
+    )
+    app.include_router(
+        build_objects_router(
+            get_session,
+            settings,
+            attribution_scheduler.notify,
+            prefix="/api/v1/testing/objects",
+            workflow_kind="testing",
+            diff_path="/code-changes/{message_id}",
+        )
+    )
     app.include_router(build_releases_router(settings))
     logger.info(
         "服务配置加载完成",

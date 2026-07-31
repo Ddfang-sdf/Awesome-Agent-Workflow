@@ -14,21 +14,31 @@ access_logger = logging.getLogger("aaw_telemetry.http.access")
 
 
 class RequestBodyLimitMiddleware:
-    def __init__(self, app: ASGIApp, max_bytes: int, max_object_bytes: int):
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_bytes: int,
+        max_object_bytes: int,
+        max_issue_image_bytes: int,
+    ):
         self.app = app
         self.max_bytes = max_bytes
         self.max_object_bytes = max_object_bytes
+        self.max_issue_image_bytes = max_issue_image_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        limit = (
-            self.max_object_bytes
-            if scope.get("method") == "PUT"
-            and scope.get("path", "").startswith("/api/v1/objects/step-diffs/")
-            else self.max_bytes
-        )
+        method = scope.get("method")
+        path = scope.get("path", "")
+        if method == "PUT" and path.startswith("/api/v1/objects/step-diffs/"):
+            limit = self.max_object_bytes
+        elif method == "POST" and path == "/api/v1/issues/images":
+            # multipart framing and headers need a small allowance beyond the file limit.
+            limit = self.max_issue_image_bytes + 64 * 1024
+        else:
+            limit = self.max_bytes
         content_length = dict(scope.get("headers", [])).get(b"content-length")
         if content_length and int(content_length) > limit:
             await self._reject(send, scope, limit)

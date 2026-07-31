@@ -1,0 +1,16 @@
+services:
+  attribution:
+    build:
+      context: ..
+      dockerfile: attribution-service/Dockerfile
+    image: aaw-attribution-service:${AAW_ATTRIBUTION_VERSION:-0.1.0}
+    restart: unless-stopped
+    environment:
+      AAW_ATTRIBUTION_API_TOKEN: ${AAW_ATTRIBUTION_API_TOKEN:-}
+    ports:
+      - "${AAW_ATTRIBUTION_BIND:-127.0.0.1:18081}:8010"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health/ready')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

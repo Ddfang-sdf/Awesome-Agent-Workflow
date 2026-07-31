@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>问题许愿池 · Adoption Studio</title>
 <link rel="stylesheet" href="vendor/fonts.css" />
-<link rel="stylesheet" href="wishes.css?v=20260722-1" />
+<link rel="stylesheet" href="wishes.css?v=20260730-2" />
 </head>
 <body>
 <div class="wash" aria-hidden="true"></div>
@@ -15,7 +15,9 @@
     <span class="mark__text"><strong>代码采纳工坊</strong><small>ADOPTION STUDIO</small></span>
   </a>
   <nav class="portal-nav" aria-label="主导航">
+    <a href="aaw-workflow.html">AAW 工作流介绍</a>
     <a href="bright.html">采纳看板</a>
+    <a href="test.html">测试看板</a>
     <a class="is-active" href="wishes.html" aria-current="page">问题许愿池</a>
   </nav>
   <button class="primary" id="newIssue" type="button">+ 新增问题</button>
@@ -39,7 +41,15 @@
   <form id="issueForm" method="dialog">
     <div class="dialog__head"><h2 id="dialogTitle">新增问题</h2><button class="icon-btn" type="button" data-close aria-label="关闭">×</button></div>
     <label>问题标题 <input name="title" maxlength="100" required /></label>
-    <label>问题描述 <textarea name="description" rows="5" maxlength="10000" required></textarea></label>
+    <label class="description-field">问题描述
+      <span class="editor-toolbar">
+        <button class="secondary editor-insert" id="insertImage" type="button">插入图片</button>
+        <span>支持粘贴 PNG、JPEG、WebP；最多 10 张</span>
+      </span>
+      <input id="imagePicker" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+      <div id="descriptionEditor" class="rich-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="问题描述" data-placeholder="输入问题描述，可直接粘贴截图"></div>
+      <span class="editor-meta"><span id="editorStatus" aria-live="polite">可直接 Ctrl+V 粘贴截图</span><span id="descriptionCount">0 / 10000</span></span>
+    </label>
     <div class="form-grid">
       <label>问题提出人 <input name="reporter" maxlength="100" required /></label>
       <label>责任人 <select name="assignee" id="formAssignee" required></select></label>
@@ -49,12 +59,17 @@
       <label>SR <input name="sr" maxlength="128" /></label>
       <label>AR <input name="ar" maxlength="128" /></label>
     </div>
-    <div class="dialog__actions"><button class="secondary" type="button" data-close>取消</button><button class="primary" type="submit">保存</button></div>
+    <div class="dialog__actions"><button class="secondary" type="button" data-close>取消</button><button class="primary" id="saveIssue" type="submit">保存</button></div>
   </form>
 </dialog>
 
 <dialog id="detailDialog" class="dialog detail-dialog"><div id="detailContent"></div></dialog>
+<dialog id="imageLightbox" class="image-lightbox">
+  <button class="icon-btn" id="closeLightbox" type="button" aria-label="关闭图片预览">×</button>
+  <img id="lightboxImage" alt="" />
+  <a id="openOriginal" target="_blank" rel="noopener">查看原图</a>
+</dialog>
 <script src="config.js"></script>
-<script src="wishes.js?v=20260722-1"></script>
+<script src="wishes.js?v=20260730-2"></script>
 </body>
 </html>

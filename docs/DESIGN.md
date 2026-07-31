@@ -64,11 +64,11 @@ steps:
 
 | type | next 行为 | --data 要求 |
 |------|----------|------------|
-| `sr-init` | 用户确认后分配 1 个 `sr-design` 新 id | 无 |
+| `sr-init` | 分配 1 个 `sr-design` 新 id | 无 |
 | `sr-design` | 分配 1 个 `sr-design-gate` 新 id | 无 |
-| `sr-design-gate` | `pass` 时等待用户确认后分配 1 个 `ar-split`；`fail/blocked` 拒绝流转 | **必须** |
+| `sr-design-gate` | `pass` 时分配 1 个 `ar-split`；`fail/blocked` 拒绝流转 | **必须** |
 | `ar-split` | 按 `--data.ars` 条目数分配 N 个新 id | **必须** |
-| `ar-clarify` | 分配 1 个新 id | 无 |
+| `ar-clarify` | 用户确认后分配 1 个新 id | 无 |
 | `module-boundary-design` | 分配 1 个新 id | 无 |
 | `module-detail-design-split` | 按 `--data.module_groups` 条目数分配 N 个新 id | **必须** |
 | `module-asis-analysis` | 分配 1 个新 id | 无 |
@@ -129,16 +129,16 @@ input:
   - '.sdd/SR-001/SR-design.md'
 output:
   - path: '.sdd/SR-001/SR-design-gate.md'
-    required: false
+    required: true
 available_next: ['ar-split']
 next: []
 ```
 
-只有提交 `gate_result=pass` 时才会等待用户强制确认并生成 `ar-split`；`fail` 和
-`blocked` 保持当前 Gate 未完成，不生成下游，也不自动 rollback。报告是可选输出：
-首次零问题时只提交紧凑 JSON，不生成 Markdown；存在任意发现或历史报告时才写报告。
+只有提交 `gate_result=pass` 时才会生成 `ar-split`；`fail` 和
+`blocked` 保持当前 Gate 未完成，不生成下游，也不自动 rollback。报告是 required 输出：
+每一轮检查都必须生成或更新，`report` 恒为实际报告路径。
 
-### ar-split（Gate 通过并经用户确认后生成）
+### ar-split（Gate 通过后生成）
 
 ```yaml
 id: 4
@@ -427,6 +427,8 @@ aaw next --sr SR-001 --json     # JSON（Agent 调用）
 }
 ```
 
+`ready` 是是否执行 step 的唯一依据。即使工作单中的 required output 已经存在，Agent 仍必须执行当前 step；已有输出作为本轮修改基线，可局部修改或整体重写，但必须写回原路径，不能据此直接 `done`。required output 是否存在仅用于 `done` 前的交付校验。
+
 ### `aaw done`
 
 ```bash
@@ -445,6 +447,22 @@ aaw user-confirm --sr SR-001 --json
 ```
 
 用于确认 `pending_user_confirm` 中暂存的下游计划。执行成功后，CLI 将 planned steps 追加到 `steps`，并把来源 step 的 `next` 填入对应 id。
+
+### `aaw rollback`
+
+```bash
+# 只返回回退影响范围和成果物策略，不修改状态或文件
+aaw rollback --sr SR-001 <id> --json
+
+# 用户明确选择后执行
+aaw rollback --sr SR-001 <id> --artifacts preserve --json
+aaw rollback --sr SR-001 <id> --artifacts discard --json
+```
+
+无 `--artifacts` 时返回 `confirmation_required`、目标 step、失效的下游 step、CLI 登记的成果物和两个 choice。Agent 必须向用户确认后直接执行所选 `command_argv`。
+
+- `preserve`：回退状态并移除下游 step，不删除文件；重新执行时以已有成果为基线，可局部修改或整体重写并写回原路径。
+- `discard`：回退状态，并删除目标及下游 step 在 `output` 中登记的普通文件；未登记的代码、目录和其他文件不在自动删除范围内。
 
 `--data` 三种结构：
 
@@ -704,13 +722,14 @@ sequenceDiagram
 sequenceDiagram
     participant A as Agent
     participant C as CLI
-    participant W as workflow.yaml
+    participant W as .sdd/SR-001/
 
     rect rgb(240, 248, 255)
         Note over A,W: 初始化
-        A->>C: aaw start --entry sr --sr SR-001
+        A->>C: aaw start --entry sr --sr SR-001 --requirement-file requirement.md
         C->>W: 创建 .sdd/SR-001/
-        C->>W: 写入 step 1 (sr-init)
+        C->>W: 写入 original-requirement.md
+        C->>W: 写入 workflow.yaml：step 1 (sr-init)
         C-->>A: { ok }
     end
 
@@ -720,8 +739,6 @@ sequenceDiagram
         C-->>A: { ready: [1] }
         A->>A: load_skill repo-init → 产出 software_architecture.md
         A->>C: aaw done --sr SR-001 1
-        C->>W: 等待用户确认
-        A->>C: aaw user-confirm --sr SR-001
         C->>W: 生成 step 2 (sr-design)
     end
 
@@ -738,11 +755,9 @@ sequenceDiagram
         Note over A,W: Step 3: SR设计门禁
         A->>C: aaw next --sr SR-001
         C-->>A: { ready: [3] }
-        A->>A: 执行 sr-design-gate → 有发现时才产出 SR-design-gate.md
+        A->>A: 执行 sr-design-gate → 产出 SR-design-gate.md
         A->>C: aaw done 3 --data '{"gate_result":"pass",...}'
-        C->>W: step 3.finished = true，等待用户确认
-        A->>C: aaw user-confirm --sr SR-001
-        C->>W: 生成 step 4 (ar-split)
+        C->>W: step 3.finished = true，生成 step 4 (ar-split)
     end
 
     rect rgb(240, 255, 240)
@@ -1034,9 +1049,9 @@ Then    step 2.finished = true
 
 ```
 Given   step 3: type=sr-design-gate, finished=false, next=[]
-When    首次检查零问题，gate_result=pass、report=null 且 summary 全部为 0
-Then    step 3 完成，等待用户确认；确认后生成 ar-split
-        不要求生成 SR-design-gate.md
+When    gate_result=pass 且 summary 全部为 0
+Then    step 3 完成，直接生成 ar-split，无需用户确认
+        必须生成 SR-design-gate.md，report 填写其路径
 When    gate_result=fail 或 blocked
 Then    CLI 拒绝流转，step 3 保持未完成，不生成下游，不自动 rollback
         Skill 必须生成问题报告

@@ -53,7 +53,27 @@ def _die(msg: str, code: int = 1) -> None:
 
 
 def _echo_json(data: dict) -> None:
-    typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
+    pretty = json.dumps(data, ensure_ascii=False, indent=2)
+    compact = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    from .runtime_logging import echo_json
+
+    if not echo_json(pretty, compact):
+        typer.echo(pretty)
+
+
+def _rollback_argv(sr: str, step_id: int, artifact_policy: str) -> list[str]:
+    script = str((Path(__file__).resolve().parents[1] / "aaw.py")).replace("\\", "/")
+    return [
+        "python",
+        script,
+        "rollback",
+        "--sr",
+        sr,
+        str(step_id),
+        "--artifacts",
+        artifact_policy,
+        "--json",
+    ]
 
 
 def _parse_vars(
@@ -89,6 +109,24 @@ def _parse_vars(
 # start
 # ---------------------------------------------------------------------------
 
+def _read_requirement_file(entry: str, requirement_file: str | None) -> str | None:
+    """Read the original requirement verbatim (UTF-8). Only entry ``sr`` uses it."""
+    if entry != "sr":
+        return None
+    if not requirement_file:
+        raise WorkflowError("--entry sr 必须提供 --requirement-file <原始需求文件>")
+    path = Path(requirement_file)
+    if not path.is_file():
+        raise WorkflowError(f"原始需求文件不存在或不可读: {requirement_file}")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        raise WorkflowError(f"原始需求文件读取失败（需为 UTF-8 文本）: {e}")
+    if not content.strip():
+        raise WorkflowError(f"原始需求文件内容为空: {requirement_file}")
+    return content
+
+
 @app.command()
 def start(
     entry: Annotated[str, typer.Option("--entry", help="入口名称，如 sr / ar")] = "sr",
@@ -96,28 +134,44 @@ def start(
     sr: Annotated[str | None, typer.Option("--sr", help="SR 需求号，等价于 --var SR=...")] = None,
     ar: Annotated[str | None, typer.Option("--ar", help="AR 编号，等价于 --var AR=...")] = None,
     title: Annotated[str | None, typer.Option("--title", help="AR 描述，等价于 --var 描述=...")] = None,
+    requirement_file: Annotated[
+        str | None,
+        typer.Option("--requirement-file", help="原始需求文件路径（--entry sr 必填），原样保存为 .sdd/{SR}/original-requirement.md"),
+    ] = None,
     use_json: Annotated[bool, typer.Option("--json/--no-json", help="JSON 输出")] = False,
 ):
     """创建 workflow.yaml，并放入配置指定的入口节点。"""
     mgr = _get_manager()
     try:
         vars_ = _parse_vars(var, sr, ar, title)
-        wf = mgr.start(entry, vars_)
+        requirement_content = _read_requirement_file(entry, requirement_file)
+        wf = mgr.start(entry, vars_, requirement_content)
     except WorkflowError as e:
         _die(str(e))
 
     payload = {
         "ok": True,
         "sr": wf.sr,
+        "workflow_id": wf.workflow_id,
         "entry": wf.entry,
         "workflow": str(mgr._wf_path(wf.sr)),
         "steps": [{"id": s.id, "type": s.type, "name": s.name} for s in wf.steps],
     }
+    if requirement_content is not None:
+        req_path = mgr._original_requirement_path(wf.sr)
+        payload["original_requirement"] = {
+            "path": str(req_path),
+            "line_count": requirement_content.count("\n") + (0 if requirement_content.endswith("\n") else 1),
+            "char_count": len(requirement_content),
+        }
     if use_json:
         _echo_json(payload)
     else:
         typer.echo(f"SR {wf.sr} 已启动，入口 {wf.entry}")
         typer.echo(f"  {mgr._wf_path(wf.sr)}")
+        if requirement_content is not None:
+            typer.echo(f"  原始需求已保存: {mgr._original_requirement_path(wf.sr)}")
+            typer.echo("  请与用户核对已保存的原始需求内容是否与其提供的一致")
         typer.echo("  下一步: aaw next --sr <SR> --json")
 
 
@@ -170,6 +224,7 @@ def status(
 
     data = {
         "sr": wf.sr,
+        "workflow_id": wf.workflow_id,
         "entry": wf.entry,
         "status": wf.status,
         "vars": wf.vars,
@@ -296,10 +351,7 @@ def next(
         if s["inputs"]["blocked"]:
             typer.echo("      missing input: " + ", ".join(s["inputs"]["missing_required"]))
         if s["deliverables"]["can_skip"]:
-            if s["data"]:
-                typer.echo("      ⚠ 交付件已存在，仍需按 data_schema 提交数据后执行 done")
-            else:
-                typer.echo("      ⚠ 交付件已存在，可直接执行 done")
+            typer.echo("      ℹ 交付件已存在；仍需完整执行当前工作单，可局部修改或整体重写并写回原路径")
         telemetry_result = telemetry_by_step.get(s["id"])
         if telemetry_result:
             typer.echo(f"      telemetry: {telemetry_result['status']}")
@@ -389,20 +441,50 @@ def user_confirm(
 def rollback(
     sr: Annotated[str, typer.Option("--sr", help="SR 需求号")],
     step_id: Annotated[int, typer.Argument(help="回退到的 Step ID")],
+    artifacts: Annotated[
+        str | None,
+        typer.Option("--artifacts", help="成果物策略：preserve（保留并修改）/ discard（删除并重做）"),
+    ] = None,
     use_json: Annotated[bool, typer.Option("--json/--no-json", help="JSON 输出")] = False,
 ):
-    """回退到指定 step，删除其所有下游 step。"""
+    """预览或执行回退；执行前必须明确选择成果物策略。"""
     mgr = _get_manager()
     try:
         wf = mgr.load(sr)
-        result = mgr.rollback(wf, step_id)
+        if artifacts is None:
+            result = mgr.rollback_preview(wf, step_id)
+            result["choices"] = [
+                {
+                    "id": "preserve",
+                    "label": "保留成果物并返工",
+                    "description": "保留目标及下游登记的成果文件，重新执行时可局部修改或整体重写并写回原路径。",
+                    "command_argv": _rollback_argv(sr, step_id, "preserve"),
+                },
+                {
+                    "id": "discard",
+                    "label": "删除成果物并重做",
+                    "description": "删除目标及下游由 CLI 登记的普通成果文件，再重新生成。",
+                    "command_argv": _rollback_argv(sr, step_id, "discard"),
+                },
+            ]
+        else:
+            result = mgr.rollback(wf, step_id, artifacts)
     except WorkflowError as e:
         _die(str(e))
 
     if use_json:
         _echo_json(result)
+    elif result["status"] == "confirmation_required":
+        typer.echo(f"回退到 step {step_id} 前必须选择成果物处理方式。")
+        typer.echo(f"  将使 {len(result['invalidated_step_ids'])} 个下游 step 失效")
+        typer.echo("  1. preserve：保留成果物并在原文件上返工")
+        typer.echo("  2. discard：删除 CLI 登记的成果物后重做")
+        typer.echo(f"  执行: aaw rollback --sr {sr} {step_id} --artifacts <preserve|discard> --json")
     else:
-        typer.echo(f"已回退到 step {step_id}，移除 {result['removed']} 个下游 step")
+        typer.echo(
+            f"已回退到 step {step_id}，移除 {result['removed']} 个下游 step，"
+            f"成果物策略: {result['artifact_policy']}"
+        )
 
 
 @app.command()
