@@ -12,7 +12,7 @@ import typer
 from .models import DataError, WorkflowError
 from .telemetry import TelemetryClient, TelemetryError, TelemetryStore, aaw_version
 from .update import UpdateError, auto_update_on_entry, consume_handoff, run_update
-from .workflow import WorkflowManager, write_session_marker
+from .workflow import WorkflowManager
 
 app = typer.Typer(
     name="aaw",
@@ -149,8 +149,6 @@ def start(
     except WorkflowError as e:
         _die(str(e))
 
-    write_session_marker(SDD, wf.sr)
-
     payload = {
         "ok": True,
         "sr": wf.sr,
@@ -279,8 +277,6 @@ def next(
         wf = mgr.load(sr)
     except WorkflowError as e:
         _die(str(e))
-
-    write_session_marker(SDD, wf.sr)
 
     telemetry_results = []
     for ready_step in mgr.get_ready(wf):
