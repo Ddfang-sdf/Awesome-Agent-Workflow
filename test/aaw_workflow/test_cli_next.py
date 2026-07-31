@@ -69,7 +69,6 @@ class NextCliTests(CliTestBase):
         with (
             patch.object(cli_main, "_get_manager", return_value=manager),
             patch.object(cli_main, "_get_telemetry", return_value=store),
-            patch.object(cli_main, "write_session_marker"),
             patch.object(cli_main, "_echo_json") as echo_json,
             patch.object(
                 cli_main.TelemetryClient,
@@ -169,6 +168,14 @@ class NextCliTests(CliTestBase):
 
         result = self.run_cli("done", "--sr", "SR-DESIGN2", str(order["id"]), expect=1)
         self.assertIn("required input", result.stderr)
+
+    def test_next_does_not_write_session_marker(self) -> None:
+        """question-tracker 2.0 起不再消费 .current_session；next 不得生成该文件。"""
+        self.start_sr("SR-NOMARK-NEXT")
+
+        self.run_cli("next", "--sr", "SR-NOMARK-NEXT")
+
+        self.assertFalse((self.cwd / ".sdd" / ".current_session").exists())
 
 
 if __name__ == "__main__":
