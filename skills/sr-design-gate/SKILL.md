@@ -26,7 +26,7 @@ description: 对 SR-design.md 进行设计质量门禁，检查需求范围、�
 ## 职责边界
 
 - 直接在当前主会话执行，不要委托给子 Agent。
-- 读取并审查正式 `SR-design.md`、`.sdd/software_architecture.md` 和原始需求 `original-requirement.md`，但不得修改它们。
+- 读取并审查正式 `SR-design.md`、`.sdd/software_architecture.md`（可选输入，缺失时按「架构基线缺失降级」处理）和原始需求 `original-requirement.md`，但不得修改它们。
 - 完整执行门禁检查，并按“门禁报告”规则生成或更新工作单 `output` 指定的 `SR-design-gate.md`。
 - 不替用户裁决范围、架构、AR 边界、契约或验收阈值冲突；需要外部决策时结论为 `阻塞`。
 - 不自动 rollback。整改后在同一个 Gate step 上重新执行。
@@ -37,12 +37,23 @@ description: 对 SR-design.md 进行设计质量门禁，检查需求范围、�
 - SR 设计模板固定从相邻 Skill 的 `<skill-dir>/../sr-design/reference/design-template.md` 读取。
 - 门禁规则从 `<skill-dir>/references/gate-checklist.md` 读取；密码学适用性判定为涉及时，追加执行 `<skill-dir>/references/crypto-gate-checklist.md`；门禁报告模板固定从 `<skill-dir>/references/gate-result-template.md` 读取。
 - 任一 required input、SR 设计模板、门禁规则清单或报告模板缺失、不可读时，结论必须为 `阻塞`。不得改用记忆中的旧模板或仓库相对路径继续检查。
+- `.sdd/software_architecture.md` 为可选输入，缺失或不可读不构成 `阻塞`，按下节「架构基线缺失降级」执行。
+
+## 架构基线缺失降级
+
+`.sdd/software_architecture.md` 缺失或不可读时，按以下口径执行，不得因此判 `阻塞`，也不得默认放行：
+
+- 「架构一致性」维度改判为 `降级检查（无架构基线）`：仅依据 `SR-design.md` 自身的架构章节做内部一致性检查（分层图、模块职责表、模块交互与 AR 承接模块之间是否自洽），不执行与架构文档的交叉核对。
+- 该维度不因缺少交叉核对而记未达标；但内部自洽性问题仍按原分级口径记录。
+- 固定记一条 P2 欠账：`架构基线缺失，进入 AR 拆分前需补 repo-init 生成 .sdd/software_architecture.md`。该条不阻断本轮结论。
+- 在门禁报告中写明降级依据（架构文档路径与缺失事实），以及 `SR-design.md` 中「软件架构」章节是否已按情况 B 说明基线缺失。
+- 下游 `ar-init`、`task-dev` 等步骤要求该文件存在，报告需提示该欠账将在后续步骤成为硬约束。
 
 ## 强制检查流程
 
 开始时使用 todo-list 工具建立检查计划，并按顺序完成：
 
-1. 解析工作单路径，读取架构、SR 设计、当前模板、门禁规则和已有门禁报告。
+1. 解析工作单路径，读取架构、SR 设计、当前模板、门禁规则和已有门禁报告。架构文档缺失时记录该事实并转入「架构基线缺失降级」口径，继续后续步骤。
 2. 如有历史门禁报告，先恢复上一轮问题编号、状态和关闭证据。
 3. 执行密码学适用性判定：对照 `crypto-gate-checklist.md` 的算法类别口径检索 SR 设计正文，形成涉及/不涉及结论并记录检索依据；判定为涉及时，后续步骤追加执行该清单。
 4. 以当前模板作为章节、占位符和表格结构的唯一依据，逐章节检查完整性、残留占位符、空表格以及未闭合的 Markdown/Mermaid fence。
