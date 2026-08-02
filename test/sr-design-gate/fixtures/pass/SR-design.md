@@ -22,9 +22,45 @@
 
 校验请求，创建订单，再返回订单 ID。
 
+```mermaid
+sequenceDiagram
+    participant C as 调用方
+    participant O as 订单模块
+    participant P as 支付适配模块
+
+    rect rgb(255, 237, 213)
+        Note over C,P: 图例：变更
+    end
+    rect rgb(255, 237, 213)
+        C->>O: POST /orders（requestId）
+        O->>P: 校验支付适配状态
+        P-->>O: 返回适配状态
+        O-->>C: 返回订单 ID
+    end
+```
+
 ### 5.2 整体架构
 
 订单模块调用支付适配模块，不产生反向依赖。
+
+```mermaid
+graph LR
+    C[调用方] -->|POST /orders| O[订单模块]
+    O -->|校验适配状态| P[支付适配模块]
+
+    subgraph Legend[图例]
+        direction LR
+        LG_UNCHANGED[不变]
+        LG_CHANGED[变更]
+    end
+
+    classDef changed fill:#ffedd5,stroke:#ea580c,stroke-width:2px;
+    classDef unchanged fill:#f3f4f6,stroke:#6b7280,stroke-width:1px;
+    class C,P,LG_UNCHANGED unchanged;
+    class O,LG_CHANGED changed;
+    linkStyle 0 stroke:#ea580c,stroke-width:2px;
+    linkStyle 1 stroke:#6b7280,stroke-width:1px;
+```
 
 ### 5.3 模块交互时序（模块视角）
 
@@ -69,6 +105,11 @@
 ### 7.2 AR 依赖关系图
 
 AR-001 无前置 AR。
+
+```mermaid
+graph TB
+    AR001[AR-001 订单创建]
+```
 
 ### 7.3 AR 间交互接口
 
