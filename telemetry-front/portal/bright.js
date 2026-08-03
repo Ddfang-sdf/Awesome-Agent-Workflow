@@ -768,8 +768,8 @@
   }
 
   // ── trend line ─────────────────────────────────────────
-  function ensureChart(id) {
-    if (!charts[id]) charts[id] = echarts.init(document.getElementById(id), null, { renderer: "canvas" });
+  function ensureChart(id, renderer = "canvas") {
+    if (!charts[id]) charts[id] = echarts.init(document.getElementById(id), null, { renderer });
     return charts[id];
   }
   const gridBase = { left: 8, right: 20, top: 28, bottom: 8, containLabel: true };
@@ -929,7 +929,8 @@
   }
 
   function renderPersonBars() {
-    const chart = ensureChart("personChart");
+    // SVG keeps person names as real text nodes so users can select and copy them.
+    const chart = ensureChart("personChart", "svg");
     const rows = [...state.data.byPerson]
       .sort((a, b) => b.generatedLines - a.generatedLines)
       .reverse();
