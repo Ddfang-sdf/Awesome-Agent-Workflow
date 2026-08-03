@@ -558,6 +558,16 @@ body > main.stage { z-index: 0; }
 
 .plot { width: 100%; height: 300px; }
 .plot--tall { height: 400px; }
+.plot--selectable,
+.plot--selectable * {
+  -webkit-touch-callout: default !important;
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+.plot--selectable svg text {
+  cursor: text;
+  pointer-events: auto !important;
+}
 
 /* ── Component composition: strip + TOP ranking ──────── */
 .compo { padding: 6px 0 14px; }
