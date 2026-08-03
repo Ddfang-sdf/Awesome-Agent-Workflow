@@ -5,6 +5,8 @@ prompt:
 input:
   - path: ".sdd/{SR}/SR-design.md"
     required: true
-output: []
+output:
+  - path: ".sdd/{SR}/AR-split.md"
+    required: true
 data_prompt:
-  description: "根据用户选择构造 --data：拆分时使用 ars；不拆分时使用 mode=no_split。"
+  description: "先写入并展示 AR-split.md：拆分时逐条确认 AR 的 id、title、范围摘要和拆分理由；不拆分时记录免拆分决定。随后构造 --data：拆分时使用 ars；不拆分时使用 mode=no_split。"
