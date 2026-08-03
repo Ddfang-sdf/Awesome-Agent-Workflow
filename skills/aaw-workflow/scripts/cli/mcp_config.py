@@ -253,6 +253,7 @@ def _load_json_config(config_file: Path) -> dict:
     """Load a JSON/JSONC config file.
 
     - Missing file → empty dict (fresh write).
+    - Empty or comment-only file → empty dict (treated as an empty config).
     - Parses ``//`` and ``/* */`` comments (Claude Code ~/.claude.json is JSONC).
     - Raises ``MCPConfigError`` on unparseable content — the caller must NOT
       overwrite the file in that case.
@@ -263,8 +264,12 @@ def _load_json_config(config_file: Path) -> dict:
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
+        stripped = _strip_jsonc_comments(text)
+        if not stripped.strip():
+            # Empty file or comment-only file → legitimate empty config
+            return {}
         try:
-            data = json.loads(_strip_jsonc_comments(text))
+            data = json.loads(stripped)
         except json.JSONDecodeError as e:
             raise MCPConfigError(
                 f"配置文件无法解析（含注释或语法错误），为安全起见未做修改: {config_file}: {e}",

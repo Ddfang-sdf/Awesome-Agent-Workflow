@@ -1717,6 +1717,75 @@ class TestUpsertClaudeMcp(unittest.TestCase):
 
         assert config.read_text(encoding='utf-8') == broken  # 原文件未被覆盖
 
+    # -- IT-M04-12 ~ IT-M04-16: empty/edge config semantics ---------------
+
+    def test_it_m04_12_empty_file_treated_as_empty_config(self) -> None:
+        """IT-M04-12: 0-byte config file → treated as empty config, inject MCP."""
+        exe = self._touch_exe()
+        config = self.tmp_path / "claude.json"
+        config.write_text("", encoding='utf-8')
+        result = upsert_claude_mcp(config, exe, Path("/home/testuser/.claude/skills"))
+        assert result is True
+        data = json.loads(config.read_text(encoding='utf-8'))
+        assert data["mcpServers"]["question-tracker"]["command"] == posix(exe)
+
+    def test_it_m04_13_comment_only_file_treated_as_empty_config(self) -> None:
+        """IT-M04-13: file with ONLY comments (no JSON content) → empty config."""
+        exe = self._touch_exe()
+        config = self.tmp_path / "claude.json"
+        config.write_text(
+            '// just a note\n/* nothing here */\n',
+            encoding='utf-8',
+        )
+        result = upsert_claude_mcp(config, exe, Path("/home/testuser/.claude/skills"))
+        assert result is True
+        data = json.loads(config.read_text(encoding='utf-8'))
+        assert data["mcpServers"]["question-tracker"]["command"] == posix(exe)
+
+    def test_it_m04_14_top_level_non_object_refused(self) -> None:
+        """IT-M04-14: top-level is array/string → refuse, file unchanged."""
+        exe = self._touch_exe()
+        config = self.tmp_path / "claude.json"
+        for bad in ['[]', '"just a string"', '123']:
+            config.write_text(bad, encoding='utf-8')
+            result = upsert_claude_mcp(config, exe, Path("/home/testuser/.claude/skills"))
+            assert result is False, f"should refuse top-level {bad!r}"
+            assert config.read_text(encoding='utf-8') == bad
+
+    def test_it_m04_15_escaped_quote_then_comment(self) -> None:
+        r'''IT-M04-15: \" inside string, then a real // comment — strip only the comment.'''
+        exe = self._touch_exe()
+        config = self.tmp_path / "claude.json"
+        config.write_text(
+            '{\n'
+            '  "note": "she said \\"hi\\"",  // real comment\n'
+            '  "theme": "dark"\n'
+            '}\n',
+            encoding='utf-8',
+        )
+        result = upsert_claude_mcp(config, exe, Path("/home/testuser/.claude/skills"))
+        assert result is True
+        data = json.loads(config.read_text(encoding='utf-8'))
+        assert data["note"] == 'she said "hi"'
+        assert data["theme"] == "dark"
+
+    def test_it_m04_16_unclosed_block_comment_to_eof(self) -> None:
+        """IT-M04-16: unclosed /* comment runs to EOF — content before it parsed."""
+        exe = self._touch_exe()
+        config = self.tmp_path / "claude.json"
+        config.write_text(
+            '{\n'
+            '  "theme": "dark"\n'
+            '}\n'
+            '/* trailing unclosed comment that never ends\n'
+            '   more text here\n',
+            encoding='utf-8',
+        )
+        result = upsert_claude_mcp(config, exe, Path("/home/testuser/.claude/skills"))
+        assert result is True
+        data = json.loads(config.read_text(encoding='utf-8'))
+        assert data["theme"] == "dark"
+
 
 
 
