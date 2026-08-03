@@ -10,11 +10,23 @@
 
 ## 3. 外部依赖
 
-支付服务超时为 3 秒。
+### 3.1 支付服务
+
+基本契约：订单模块通过 RPC `PaymentAdapter.create` 调用支付服务，复用规范 `contracts/payment-adapter.md` 修订版 2.1。
+
+请求字段 `requestId: string` 必填不可空；响应字段 `created: boolean` 必返不可空。错误 `PAYMENT_TIMEOUT` 在 3 秒超时时触发，可使用同一 requestId 重试一次，无部分成功。服务身份认证，3 秒超时，1000 QPS，SLA 99.9%，失败时熔断。结构简单，完整示例不适用：字段描述已覆盖契约。
 
 ## 4. 对外接口
 
-`POST /orders` 的 `requestId` 是 string，超时 3 秒，同步返回结果。
+### 4.1 创建订单
+
+基本契约：HTTP `POST /orders`，版本 v1，本次修改。
+
+| 字段路径 | 位置 | 类型 | 必填 | 可空 | 默认值 | 约束 | 业务语义 | 敏感级别 | 示例 |
+|---|---|---|---|---|---|---|---|---|---|
+| requestId | body | string | 是 | 否 | 无 | 1-64 字符 | 幂等请求标识 | 内部 | req-001 |
+
+响应字段 `orderId: string` 在 HTTP 200 时必返不可空。错误 `ORDER_CREATE_FAILED` 表示创建失败，可重试一次，无部分成功。接口使用 OAuth2、requestId 幂等、3 秒超时、1000 QPS，版本 v1；差异表声明 requestId 由 string 改为 integer 且不兼容。结构简单，完整示例不适用：字段描述已覆盖契约。
 
 ## 5. 功能设计
 
