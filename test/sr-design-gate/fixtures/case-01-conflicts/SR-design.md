@@ -22,9 +22,47 @@
 
 订单创建失败时进行一次重试。
 
+```mermaid
+sequenceDiagram
+    participant C as 调用方
+    participant O as 订单模块
+    participant P as 支付适配模块
+
+    rect rgb(255, 237, 213)
+        Note over C,P: 图例：变更
+    end
+    rect rgb(255, 237, 213)
+        C->>O: POST /orders（requestId）
+        O->>P: 创建订单
+        P-->>O: 返回失败
+        O->>P: 重试创建订单
+        P-->>O: 返回结果
+        O-->>C: 返回订单结果
+    end
+```
+
 ### 5.2 整体架构
 
 支付适配模块反向调用订单模块。
+
+```mermaid
+graph LR
+    C[调用方] -->|POST /orders| O[订单模块]
+    P[支付适配模块] -->|反向调用| O
+
+    subgraph Legend[图例]
+        direction LR
+        LG_UNCHANGED[不变]
+        LG_CHANGED[变更]
+    end
+
+    classDef changed fill:#ffedd5,stroke:#ea580c,stroke-width:2px;
+    classDef unchanged fill:#f3f4f6,stroke:#6b7280,stroke-width:1px;
+    class C,P,LG_UNCHANGED unchanged;
+    class O,LG_CHANGED changed;
+    linkStyle 0 stroke:#6b7280,stroke-width:1px;
+    linkStyle 1 stroke:#ea580c,stroke-width:2px;
+```
 
 ### 5.3 模块交互时序（模块视角）
 
@@ -71,6 +109,12 @@
 ### 7.2 AR 依赖关系图
 
 AR-002 依赖 AR-001，AR-003 依赖 AR-001。
+
+```mermaid
+graph TB
+    AR002[AR-002 通知发送] --> AR001[AR-001 订单创建]
+    AR003[AR-003 审计记录] --> AR001
+```
 
 ### 7.3 AR 间交互接口
 
