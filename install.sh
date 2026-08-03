@@ -321,38 +321,34 @@ echo
 echo "Registering MCP server (question-tracker, $TARGET/$SCOPE)..."
 case "$CONFIG_FMT" in
   claude-json)
-    uv run python - "$CONFIG_FILE" "$MCP_SCOPE_KEY" "$MCP_EXE" <<'PY'
-import json, os, sys
-path, scope_key, exe_path = sys.argv[1], sys.argv[2], sys.argv[3]
+    uv run python - "$CONFIG_FILE" "$MCP_SCOPE_KEY" "$MCP_EXE" "$REPO_ROOT" <<'PY'
+import os, sys
+from pathlib import Path
+path, scope_key, exe_path, repo_root = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 exe_path = exe_path.replace(chr(92), "/")
-data = {} if not os.path.exists(path) else json.load(open(path, encoding="utf-8"))
-entry = {"command": exe_path, "args": [], "env": {}}
-if scope_key == "__global__":
-    mcp_servers = data.setdefault("mcpServers", {})
-    mcp_servers["question-tracker"] = entry
+sys.path.insert(0, str(Path(repo_root) / "skills" / "aaw-workflow" / "scripts"))
+from cli.mcp_config import upsert_claude_mcp
+skills_root = Path.home() / ".claude" / "skills" if scope_key == "__global__" else Path(scope_key) / ".claude" / "skills"
+changed = upsert_claude_mcp(Path(path), Path(exe_path), skills_root)
+if changed:
+    print(f"  registered in {path}")
 else:
-    proj = data.setdefault("projects", {}).setdefault(scope_key, {})
-    proj.setdefault("mcpServers", {})["question-tracker"] = entry
-with open(path, "w", encoding="utf-8") as f: json.dump(data, f, indent=2)
-print(f"  registered in {path}")
+    print(f"  skipped (already up to date or unparsable, see warning) in {path}")
 PY
     ;;
   opencode-json)
-    uv run python - "$CONFIG_FILE" "$MCP_EXE" <<'PY'
-import json, os, sys
-path, exe_path = sys.argv[1], sys.argv[2]
+    uv run python - "$CONFIG_FILE" "$MCP_EXE" "$REPO_ROOT" <<'PY'
+import os, sys
+from pathlib import Path
+path, exe_path, repo_root = sys.argv[1], sys.argv[2], sys.argv[3]
 exe_path = exe_path.replace(chr(92), "/")
-data = {} if not os.path.exists(path) else json.load(open(path, encoding="utf-8"))
-data.setdefault("$schema", "https://opencode.ai/config.json")
-data.setdefault("mcp", {})["question-tracker"] = {
-    "type": "local",
-    "command": [exe_path],
-    "enabled": True,
-    "environment": {},
-}
-os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-with open(path, "w", encoding="utf-8") as f: json.dump(data, f, indent=2)
-print(f"  registered in {path}")
+sys.path.insert(0, str(Path(repo_root) / "skills" / "aaw-workflow" / "scripts"))
+from cli.mcp_config import upsert_opencode_mcp
+changed = upsert_opencode_mcp(Path(path), Path(exe_path))
+if changed:
+    print(f"  registered in {path}")
+else:
+    print(f"  skipped (already up to date or unparsable, see warning) in {path}")
 PY
     ;;
   codex-toml)
@@ -381,71 +377,18 @@ print(f"  registered in {path}")
 PY
     ;;
   chrys-yaml)
-    uv run python - "$CONFIG_FILE" "$MCP_EXE" <<'PY'
-import os, sys
+    uv run python - "$CONFIG_FILE" "$MCP_EXE" "$REPO_ROOT" <<'PY'
+import sys
 from pathlib import Path
-path = Path(sys.argv[1])
-exe_path = sys.argv[2]
+path, exe_path, repo_root = sys.argv[1], sys.argv[2], sys.argv[3]
 exe_path = exe_path.replace(chr(92), "/")
-entry = "    - name: question-tracker\n      transport: stdio\n      command: " + exe_path + "\n      args: []\n      enabled: true\n"
-if not path.exists():
-    try:
-        from importlib.resources import files
-        builtin = files("chrys.service.profiles.agents.builtins").joinpath("Code.yaml").read_text("utf-8")
-    except Exception:
-        builtin = "name: Code\n"
-    lines = builtin.splitlines(keepends=True)
-    has_mcp = any("  mcp:" in l or "\tmcp:" in l for l in lines)
-    if not has_mcp:
-        has_tools = any(l.startswith("tools:") for l in lines)
-        if not has_tools:
-            if lines and not lines[-1].endswith("\n"): lines.append("\n")
-            lines.append("tools:\n")
-        lines.append("  mcp:\n")
-        lines.append(entry)
-    else:
-        for i, l in enumerate(lines):
-            if "  mcp:" in l or "\tmcp:" in l:
-                end = len(lines)
-                for j in range(i + 1, len(lines)):
-                    s = lines[j].rstrip("\n").rstrip("\r")
-                    if s and not s[0].isspace(): end = j; break
-                lines.insert(end, entry)
-                break
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(lines), "utf-8")
+sys.path.insert(0, str(Path(repo_root) / "skills" / "aaw-workflow" / "scripts"))
+from cli.mcp_config import upsert_chrys_mcp
+changed = upsert_chrys_mcp(Path(path), Path(exe_path))
+if changed:
+    print(f"  registered in {path}")
 else:
-    text = path.read_text("utf-8")
-    if "question-tracker" in text and exe_path in text:
-        print("  question-tracker already configured — skipping")
-        sys.exit(0)
-    lines = text.splitlines(keepends=True)
-    qt_idx = -1
-    for i, l in enumerate(lines):
-        if "- name: question-tracker" in l: qt_idx = i; break
-    if qt_idx >= 0:
-        end = qt_idx + 1
-        while end < len(lines):
-            s = lines[end].rstrip("\n").rstrip("\r")
-            if s and s.strip().startswith("- name:"): break
-            end += 1
-        lines[qt_idx:end] = [entry]
-    else:
-        mcp_idx = -1
-        for i, l in enumerate(lines):
-            if "  mcp:" in l or "\tmcp:" in l: mcp_idx = i; break
-        if mcp_idx >= 0:
-            end = len(lines)
-            for j in range(mcp_idx + 1, len(lines)):
-                s = lines[j].rstrip("\n").rstrip("\r")
-                if s and not s[0].isspace(): end = j; break
-            lines.insert(end, entry)
-        else:
-            if lines and not lines[-1].endswith("\n"): lines.append("\n")
-            lines.append("tools:\n  mcp:\n")
-            lines.append(entry)
-    path.write_text("".join(lines), "utf-8")
-print("  registered in " + str(path))
+    print(f"  skipped (already up to date or unparsable, see warning) in {path}")
 PY
     ;;
 esac
