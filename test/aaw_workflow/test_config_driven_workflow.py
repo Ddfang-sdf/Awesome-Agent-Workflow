@@ -379,6 +379,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
         self.assertEqual("prompts/ar-split.md", order["prompt"]["template"])
         self.assertIn("是否需要拆分 AR", order["prompt"]["rendered"])
         self.assertIn("ars", order["data"]["fields"])
+        self.assertEqual([".sdd/SR-001/AR-split.md"], order["deliverables"]["required"])
         self.assertTrue(order["data_file"]["path"].endswith("/.sdd/SR-001/.aaw/data/step-0004-ar-split.json"))
         self.assertTrue(order["data_file"]["relative_path"].endswith(".sdd/SR-001/.aaw/data/step-0004-ar-split.json"))
         self.assertEqual("utf-8", order["data_file"]["encoding"])
@@ -409,7 +410,7 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
             ],
             [item["path"] for item in gate.input],
         )
-        self.assertTrue(all(item["required"] for item in gate.input))
+        self.assertEqual([False, True, True], [item["required"] for item in gate.input])
         self.assertEqual(".sdd/SR-GATE/SR-design-gate.md", gate.output[0]["path"])
         self.assertTrue(gate.output[0]["required"])
         deliverables = self.mgr.check_deliverables(gate)
@@ -530,6 +531,9 @@ class ConfigDrivenWorkflowTests(unittest.TestCase):
                 check=True,
                 text=True,
                 capture_output=True,
+            )
+            (cwd / ".sdd" / "SR-DATAFILE" / "AR-split.md").write_text(
+                "# AR 拆分决定\n\nAR-001：用户管理", "utf-8"
             )
             subprocess.run(
                 [sys.executable, str(AAW_SCRIPT), "done", "--sr", "SR-DATAFILE", "1", "--json"],

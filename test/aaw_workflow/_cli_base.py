@@ -174,6 +174,7 @@ class CliTestBase(unittest.TestCase):
             ),
             "--json",
         )
+        (self.cwd / ".sdd" / sr / "AR-split.md").write_text("AR split", "utf-8")
         self.run_cli("next", "--sr", sr, "--json")
 
     def status_json(self, sr: str) -> dict:
