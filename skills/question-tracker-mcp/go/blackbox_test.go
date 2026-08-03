@@ -778,6 +778,79 @@ func TestBB11_ReopenDeleteStdio(t *testing.T) {
 }
 
 // ============================================================
+// BB-Upgrade: full upgrade link over stdio (IT-UP-10)
+// ============================================================
+
+func TestBB_Upgrade_FullLink(t *testing.T) {
+	origCwd, poolRoot, workDir := bbSetup(t)
+	defer os.Chdir(origCwd)
+
+	// Build legacy scene: marker + legacy pool with 1 answered + 1 pending
+	os.MkdirAll(filepath.Join(workDir, ".sdd", "SR-001"), 0755)
+	os.WriteFile(filepath.Join(workDir, ".sdd", ".current_session"), []byte("./.sdd/SR-001/"), 0644)
+	legacyBody := `{"questions":[` +
+		`{"id":1,"question":"数据库选型？","status":"answered","answer":"PostgreSQL","source":"user","derivation_note":null,"created_at":"","answered_at":null,"updated_at":null,"history":[]},` +
+		`{"id":2,"question":"缓存方案？","status":"pending","answer":null,"source":null,"derivation_note":null,"created_at":"","answered_at":null,"updated_at":null,"history":[]}` +
+		`],"next_id":3}`
+	os.WriteFile(filepath.Join(workDir, ".sdd", "SR-001", ".question_state.json"), []byte(legacyBody), 0644)
+
+	client := newMCPClient(t, workDir, poolRoot)
+	defer client.close()
+	client.initialize()
+
+	// 1. get_status WITHOUT session → legacy fallback reads the old pool
+	r1, isErr1 := client.callTool("get_status", map[string]interface{}{
+		"detail": "summary",
+	})
+	if isErr1 {
+		t.Fatalf("legacy fallback get_status failed: %v", r1)
+	}
+	if v, ok := getInt(r1["total"]); !ok || v != 2 {
+		t.Errorf("expected total=2 from legacy pool, got %v", r1["total"])
+	}
+	if r1["deprecation_warning"] == nil {
+		t.Error("expected deprecation_warning on legacy-route result")
+	}
+
+	// 2. answer WITHOUT session → succeeds via legacy route
+	r2, isErr2 := client.callTool("answer_question", map[string]interface{}{
+		"question": "缓存方案？",
+		"answer":   "Redis",
+	})
+	if isErr2 {
+		t.Fatalf("legacy-route answer failed: %v", r2)
+	}
+
+	// 3. list_sessions → migrated copy "SR-001" visible
+	r3, _ := client.callTool("list_sessions", map[string]interface{}{})
+	sessions, _ := r3["sessions"].([]interface{})
+	found := false
+	for _, s := range sessions {
+		if s.(map[string]interface{})["name"] == "SR-001" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("migrated pool 'SR-001' should appear in list_sessions: %v", r3["sessions"])
+	}
+
+	// 4. finalize WITHOUT session → archives into new mechanism
+	r4, _ := client.callTool("finalize_questions", map[string]interface{}{})
+	if r4["status"] != "ready" {
+		t.Errorf("expected ready, got %v", r4["status"])
+	}
+	archives := poolArchiveDirs(t, poolRoot, "SR-001")
+	if len(archives) != 1 {
+		t.Errorf("expected 1 archive for SR-001, got %d", len(archives))
+	}
+
+	// 5. legacy directory removed
+	if _, err := os.Stat(filepath.Join(workDir, ".sdd", "SR-001")); !os.IsNotExist(err) {
+		t.Error("legacy session directory should be removed after finalize")
+	}
+}
+
+// ============================================================
 // BB-12: amnesia recovery via list_sessions (M07 path)
 // ============================================================
 

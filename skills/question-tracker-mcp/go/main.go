@@ -486,6 +486,109 @@ func setNextID(nextID int, session, project string) error {
 }
 
 // ============================================================
+// Upgrade compatibility: legacy .sdd marker route
+// ============================================================
+
+const (
+	legacyMarkerPath = ".sdd/.current_session"
+	legacyStateFile  = ".question_state.json"
+)
+
+// legacyRoute bundles the resolved legacy session for one tool call.
+type legacyRoute struct {
+	session string // session name derived from the marker target dir (e.g. "SR-001")
+	dir     string // legacy session directory (e.g. ".sdd/SR-001")
+	file    string // legacy pool file path
+}
+
+// resolveLegacyRoute reads .sdd/.current_session and resolves the legacy
+// session directory. Returns nil when the marker is missing or blank.
+func resolveLegacyRoute() *legacyRoute {
+	data, err := os.ReadFile(legacyMarkerPath)
+	if err != nil {
+		return nil
+	}
+	target := strings.TrimSpace(string(data))
+	if target == "" {
+		return nil
+	}
+	dir := filepath.Clean(target)
+	session := filepath.Base(dir)
+	if session == "" || session == "." || session == string(filepath.Separator) {
+		return nil
+	}
+	return &legacyRoute{
+		session: session,
+		dir:     dir,
+		file:    filepath.Join(dir, legacyStateFile),
+	}
+}
+
+// legacyDeprecationWarning is attached to every legacy-route result.
+const legacyDeprecationWarning = "当前以兼容模式读写旧版问题池（.sdd 标记机制）。请更新调用方式：为工具传入 session 参数；历史数据已自动迁移至新存储。"
+
+// loadLegacyState reads the legacy pool file (empty pool when missing/corrupt).
+func loadLegacyState(lr *legacyRoute) (map[string]interface{}, error) {
+	data, err := os.ReadFile(lr.file)
+	if err != nil {
+		return map[string]interface{}{"questions": []interface{}{}, "next_id": float64(1)}, nil
+	}
+	var state map[string]interface{}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return map[string]interface{}{"questions": []interface{}{}, "next_id": float64(1)}, nil
+	}
+	if _, ok := state["questions"]; !ok {
+		return map[string]interface{}{"questions": []interface{}{}, "next_id": float64(1)}, nil
+	}
+	if _, ok := state["next_id"]; !ok {
+		state["next_id"] = float64(1)
+	}
+	return state, nil
+}
+
+// saveLegacyState writes the legacy pool file, creating the directory if needed.
+func saveLegacyState(lr *legacyRoute, state map[string]interface{}) error {
+	if err := os.MkdirAll(lr.dir, 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(lr.file, data, 0644)
+}
+
+// syncLegacyToNew mirrors the legacy pool into the new store
+// (~/.question-tracker/<proj>/<session>/state.json), overwriting.
+func syncLegacyToNew(lr *legacyRoute, project string) error {
+	state, err := loadLegacyState(lr)
+	if err != nil {
+		return err
+	}
+	return saveState(state, lr.session, project)
+}
+
+// legacyQuestions parses the questions array of a legacy state map.
+func legacyQuestions(state map[string]interface{}) []Question {
+	questionsRaw, _ := state["questions"].([]interface{})
+	var questions []Question
+	for _, qRaw := range questionsRaw {
+		if m, ok := qRaw.(map[string]interface{}); ok {
+			questions = append(questions, QuestionFromDict(m))
+		}
+	}
+	return questions
+}
+
+// withLegacyLock executes fn while holding the lock of the legacy file.
+func withLegacyLock(lr *legacyRoute, fn func() map[string]interface{}) map[string]interface{} {
+	mu := lockForPool(lr.file)
+	mu.Lock()
+	defer mu.Unlock()
+	return fn()
+}
+
+// ============================================================
 // Question Matching
 // ============================================================
 
@@ -573,6 +676,9 @@ func withPoolLock(session, project string, fn func() map[string]interface{}) map
 
 func addQuestionsTool(questions []string, session, project string) map[string]interface{} {
 	if strings.TrimSpace(session) == "" {
+		if lr := resolveLegacyRoute(); lr != nil {
+			return addQuestionsLegacy(lr, questions, project)
+		}
 		return missingSessionResult()
 	}
 	if err := validateQuestionsInput(questions); err != nil {
@@ -641,8 +747,67 @@ func addQuestionsTool(questions []string, session, project string) map[string]in
 	})
 }
 
+// addQuestionsLegacy serves add_questions on the legacy route.
+func addQuestionsLegacy(lr *legacyRoute, questions []string, project string) map[string]interface{} {
+	if err := validateQuestionsInput(questions); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	return withLegacyLock(lr, func() map[string]interface{} {
+		state, err := loadLegacyState(lr)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		allQuestions := legacyQuestions(state)
+
+		nextID := 1
+		if v, ok := state["next_id"].(float64); ok {
+			nextID = int(v)
+		}
+		for _, qText := range questions {
+			q := Question{
+				ID:        nextID,
+				Question:  qText,
+				Status:    "pending",
+				CreatedAt: "",
+				History:   []HistoryEntry{},
+			}
+			allQuestions = append(allQuestions, q)
+			nextID++
+		}
+
+		var qList []interface{}
+		for _, q := range allQuestions {
+			qList = append(qList, q.ToDict())
+		}
+		state["questions"] = qList
+		state["next_id"] = float64(nextID)
+		if err := saveLegacyState(lr, state); err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		if err := syncLegacyToNew(lr, project); err != nil {
+			log.Printf("warning: legacy mirror sync failed: %v", err)
+		}
+
+		totalPending := 0
+		for _, q := range allQuestions {
+			if q.Status == "pending" {
+				totalPending++
+			}
+		}
+		return map[string]interface{}{
+			"added_count":         len(questions),
+			"total_pending":       totalPending,
+			"pool_location":       lr.file,
+			"deprecation_warning": legacyDeprecationWarning,
+		}
+	})
+}
+
 func answerQuestionTool(question, answer, source, derivationNote, session, project string) map[string]interface{} {
 	if strings.TrimSpace(session) == "" {
+		if lr := resolveLegacyRoute(); lr != nil {
+			return answerQuestionLegacy(lr, question, answer, source, derivationNote, project)
+		}
 		return missingSessionResult()
 	}
 	stateFile, exists := poolExists(session, project)
@@ -711,8 +876,84 @@ func answerQuestionTool(question, answer, source, derivationNote, session, proje
 	})
 }
 
+// answerQuestionLegacy serves answer_question on the legacy route.
+func answerQuestionLegacy(lr *legacyRoute, question, answer, source, derivationNote, project string) map[string]interface{} {
+	return withLegacyLock(lr, func() map[string]interface{} {
+		state, err := loadLegacyState(lr)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		allQuestions := legacyQuestions(state)
+
+		matchedQ, matchErr := matchQuestion(question, allQuestions)
+		if matchErr != nil {
+			return map[string]interface{}{
+				"error": "未匹配到问题。请使用 get_status 查看准确的问题原文后重试。",
+			}
+		}
+
+		var matchedIdx int
+		for i, q := range allQuestions {
+			if q.ID == matchedQ.ID {
+				matchedIdx = i
+				break
+			}
+		}
+
+		if allQuestions[matchedIdx].Status == "answered" {
+			return map[string]interface{}{
+				"error":            "该问题已回答。如需修改，请使用 update_answer。",
+				"matched_question": allQuestions[matchedIdx].Question,
+				"current_answer":   allQuestions[matchedIdx].Answer,
+			}
+		}
+
+		now := isoTimestamp()
+		allQuestions[matchedIdx].Status = "answered"
+		allQuestions[matchedIdx].Answer = &answer
+		allQuestions[matchedIdx].Source = &source
+		if derivationNote != "" {
+			allQuestions[matchedIdx].DerivationNote = &derivationNote
+		}
+		allQuestions[matchedIdx].AnsweredAt = &now
+		allQuestions[matchedIdx].UpdatedAt = &now
+
+		var qList []interface{}
+		for _, q := range allQuestions {
+			qList = append(qList, q.ToDict())
+		}
+		state["questions"] = qList
+		if err := saveLegacyState(lr, state); err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		if err := syncLegacyToNew(lr, project); err != nil {
+			log.Printf("warning: legacy mirror sync failed: %v", err)
+		}
+
+		totalPending := 0
+		for _, q := range allQuestions {
+			if q.Status == "pending" {
+				totalPending++
+			}
+		}
+		return map[string]interface{}{
+			"matched_question": allQuestions[matchedIdx].Question,
+			"total_pending":    totalPending,
+			"action_required": map[string]interface{}{
+				"type": "analyze_and_add_new_questions",
+			},
+			"pool_location":       lr.file,
+			"deprecation_warning": legacyDeprecationWarning,
+		}
+	})
+}
+
 func getStatusTool(detail, session, project string) map[string]interface{} {
 	if strings.TrimSpace(session) == "" {
+		// Upgrade compatibility: fall back to the legacy .sdd marker route.
+		if lr := resolveLegacyRoute(); lr != nil {
+			return getStatusLegacy(lr, detail, project)
+		}
 		return missingSessionResult()
 	}
 	stateFile, exists := poolExists(session, project)
@@ -767,8 +1008,69 @@ func getStatusTool(detail, session, project string) map[string]interface{} {
 	})
 }
 
+// getStatusLegacy serves get_status on the legacy route: reads the legacy
+// pool, lazily mirrors it into the new store, and attaches the warning.
+func getStatusLegacy(lr *legacyRoute, detail, project string) map[string]interface{} {
+	return withLegacyLock(lr, func() map[string]interface{} {
+		state, err := loadLegacyState(lr)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		allQuestions := legacyQuestions(state)
+
+		// Lazy migration: mirror into the new store (best-effort).
+		if err := syncLegacyToNew(lr, project); err != nil {
+			log.Printf("warning: legacy mirror sync failed: %v", err)
+		}
+
+		total := len(allQuestions)
+		pending := 0
+		for _, q := range allQuestions {
+			if q.Status == "pending" {
+				pending++
+			}
+		}
+		answered := total - pending
+
+		if detail == "summary" {
+			return map[string]interface{}{
+				"total":               total,
+				"pending":             pending,
+				"answered":            answered,
+				"pool_location":       lr.file,
+				"deprecation_warning": legacyDeprecationWarning,
+			}
+		}
+
+		var questionsData []interface{}
+		for _, q := range allQuestions {
+			questionsData = append(questionsData, map[string]interface{}{
+				"question":        q.Question,
+				"status":          q.Status,
+				"answer":          strPtr(q.Answer),
+				"source":          strPtr(q.Source),
+				"derivation_note": strPtr(q.DerivationNote),
+				"updated_at":      strPtr(q.UpdatedAt),
+				"history":         historyToInterface(q.History),
+			})
+		}
+
+		return map[string]interface{}{
+			"total":               total,
+			"pending":             pending,
+			"answered":            answered,
+			"questions":           questionsData,
+			"pool_location":       lr.file,
+			"deprecation_warning": legacyDeprecationWarning,
+		}
+	})
+}
+
 func finalizeQuestionsTool(session, project string) map[string]interface{} {
 	if strings.TrimSpace(session) == "" {
+		if lr := resolveLegacyRoute(); lr != nil {
+			return finalizeLegacy(lr, project)
+		}
 		return missingSessionResult()
 	}
 	stateFile, exists := poolExists(session, project)
@@ -814,42 +1116,8 @@ func finalizeQuestionsTool(session, project string) map[string]interface{} {
 			})
 		}
 
-		// Archive: move <projectDir>/<session> to <projectDir>/.archive/<session>-<yyyyMMdd>
-		// Try unique names in order: date, date-time, date-time-N (counter).
-		finalLocation := stateFile
-		projectDir, err := resolveProjectDir(project)
-		if err == nil {
-			archiveDir := filepath.Join(projectDir, archiveDirName)
-			dateStr := time.Now().Format("20060102")
-			candidates := []string{
-				session + "-" + dateStr,
-				session + "-" + time.Now().Format("20060102-150405"),
-			}
-			for i := 2; i <= 99; i++ {
-				candidates = append(candidates, fmt.Sprintf("%s-%s-%d", session, time.Now().Format("20060102-150405"), i))
-			}
-			archived := false
-			for _, name := range candidates {
-				target := filepath.Join(archiveDir, name)
-				if _, err := os.Stat(target); err == nil {
-					continue // name taken, try next
-				}
-				if err := os.MkdirAll(archiveDir, 0755); err != nil {
-					log.Printf("warning: archive mkdir failed: %v", err)
-					break
-				}
-				if err := os.Rename(filepath.Join(projectDir, session), target); err != nil {
-					log.Printf("warning: archive rename failed for %s: %v", name, err)
-					continue
-				}
-				finalLocation = filepath.Join(target, stateFileName)
-				archived = true
-				break
-			}
-			if !archived {
-				log.Printf("warning: archive failed for session %s; pool remains in active area", session)
-			}
-		}
+		// Archive: move the pool into .archive/ with unique naming.
+		finalLocation := archivePool(session, project)
 
 		return map[string]interface{}{
 			"status":        "ready",
@@ -859,8 +1127,113 @@ func finalizeQuestionsTool(session, project string) map[string]interface{} {
 	})
 }
 
+// finalizeLegacy serves finalize_questions on the legacy route: archives the
+// pool into the NEW mechanism's .archive/ and removes the legacy directory.
+func finalizeLegacy(lr *legacyRoute, project string) map[string]interface{} {
+	return withLegacyLock(lr, func() map[string]interface{} {
+		state, err := loadLegacyState(lr)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		allQuestions := legacyQuestions(state)
+
+		var pendingQuestions []Question
+		for _, q := range allQuestions {
+			if q.Status == "pending" {
+				pendingQuestions = append(pendingQuestions, q)
+			}
+		}
+		if len(pendingQuestions) > 0 {
+			var pqList []map[string]interface{}
+			for _, q := range pendingQuestions {
+				pqList = append(pqList, map[string]interface{}{"question": q.Question})
+			}
+			return map[string]interface{}{
+				"status":            "blocked",
+				"pending_count":     len(pendingQuestions),
+				"pending_questions": pqList,
+				"pool_location":     lr.file,
+			}
+		}
+
+		var summary []interface{}
+		for _, q := range allQuestions {
+			summary = append(summary, map[string]interface{}{
+				"question":        q.Question,
+				"answer":          strPtr(q.Answer),
+				"source":          strPtr(q.Source),
+				"derivation_note": strPtr(q.DerivationNote),
+			})
+		}
+
+		// Mirror latest content into the new store, then archive the mirrored
+		// pool using the standard archiving logic, then remove the legacy dir.
+		finalLocation := lr.file
+		if err := syncLegacyToNew(lr, project); err != nil {
+			log.Printf("warning: legacy mirror sync failed: %v", err)
+		} else {
+			finalLocation = archivePool(lr.session, project)
+		}
+
+		if err := os.RemoveAll(lr.dir); err != nil {
+			log.Printf("warning: failed to remove legacy dir %s: %v", lr.dir, err)
+		}
+
+		return map[string]interface{}{
+			"status":              "ready",
+			"summary":             summary,
+			"pool_location":       finalLocation,
+			"deprecation_warning": legacyDeprecationWarning,
+		}
+	})
+}
+
+// archivePool moves an active pool of the NEW mechanism into .archive/ with
+// unique naming (date, date-time, date-time-N). Returns the archived
+// state.json path, or the active path when archiving failed.
+func archivePool(session, project string) string {
+	stateFile, err := resolveStateFilePath(session, project)
+	if err != nil {
+		return ""
+	}
+	finalLocation := stateFile
+	projectDir, err := resolveProjectDir(project)
+	if err != nil {
+		return finalLocation
+	}
+	archiveDir := filepath.Join(projectDir, archiveDirName)
+	dateStr := time.Now().Format("20060102")
+	candidates := []string{
+		session + "-" + dateStr,
+		session + "-" + time.Now().Format("20060102-150405"),
+	}
+	for i := 2; i <= 99; i++ {
+		candidates = append(candidates, fmt.Sprintf("%s-%s-%d", session, time.Now().Format("20060102-150405"), i))
+	}
+	for _, name := range candidates {
+		target := filepath.Join(archiveDir, name)
+		if _, err := os.Stat(target); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(archiveDir, 0755); err != nil {
+			log.Printf("warning: archive mkdir failed: %v", err)
+			break
+		}
+		if err := os.Rename(filepath.Join(projectDir, session), target); err != nil {
+			log.Printf("warning: archive rename failed for %s: %v", name, err)
+			continue
+		}
+		return filepath.Join(target, stateFileName)
+	}
+	log.Printf("warning: archive failed for session %s; pool remains in active area", session)
+	return finalLocation
+}
+
 func updateAnswerTool(question, answer, reason, session, project string) map[string]interface{} {
 	if strings.TrimSpace(session) == "" {
+		if lr := resolveLegacyRoute(); lr != nil {
+			return updateAnswerLegacy(lr, question, answer, reason, project)
+		}
 		return missingSessionResult()
 	}
 	stateFile, exists := poolExists(session, project)
@@ -939,8 +1312,92 @@ func updateAnswerTool(question, answer, reason, session, project string) map[str
 	})
 }
 
+// updateAnswerLegacy serves update_answer on the legacy route.
+func updateAnswerLegacy(lr *legacyRoute, question, answer, reason, project string) map[string]interface{} {
+	return withLegacyLock(lr, func() map[string]interface{} {
+		state, err := loadLegacyState(lr)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		allQuestions := legacyQuestions(state)
+
+		matchedQ, matchErr := matchQuestion(question, allQuestions)
+		if matchErr != nil {
+			return map[string]interface{}{
+				"error": "未匹配到问题。请使用 get_status 查看准确的问题原文后重试。",
+			}
+		}
+
+		var matchedIdx int
+		for i, q := range allQuestions {
+			if q.ID == matchedQ.ID {
+				matchedIdx = i
+				break
+			}
+		}
+
+		if allQuestions[matchedIdx].Status == "pending" {
+			return map[string]interface{}{
+				"error": "该问题尚未回答，请使用 answer_question 而不是 update_answer。",
+			}
+		}
+
+		previousAnswer := allQuestions[matchedIdx].Answer
+		now := isoTimestamp()
+
+		var reasonPtr *string
+		if reason != "" {
+			reasonPtr = &reason
+		}
+
+		entry := HistoryEntry{
+			Answer:    *previousAnswer,
+			Reason:    reasonPtr,
+			UpdatedAt: now,
+		}
+		allQuestions[matchedIdx].History = append(allQuestions[matchedIdx].History, entry)
+		allQuestions[matchedIdx].Answer = &answer
+		allQuestions[matchedIdx].UpdatedAt = &now
+
+		var qList []interface{}
+		for _, q := range allQuestions {
+			qList = append(qList, q.ToDict())
+		}
+		state["questions"] = qList
+		if err := saveLegacyState(lr, state); err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		if err := syncLegacyToNew(lr, project); err != nil {
+			log.Printf("warning: legacy mirror sync failed: %v", err)
+		}
+
+		totalPending := 0
+		for _, q := range allQuestions {
+			if q.Status == "pending" {
+				totalPending++
+			}
+		}
+		result := map[string]interface{}{
+			"matched_question": allQuestions[matchedIdx].Question,
+			"total_pending":    totalPending,
+			"action_required": map[string]interface{}{
+				"type": "reanalyze_all",
+			},
+			"pool_location":       lr.file,
+			"deprecation_warning": legacyDeprecationWarning,
+		}
+		if previousAnswer != nil {
+			result["previous_answer"] = *previousAnswer
+		}
+		return result
+	})
+}
+
 func resetQuestionsTool(onlyPending bool, session, project string) map[string]interface{} {
 	if strings.TrimSpace(session) == "" {
+		if lr := resolveLegacyRoute(); lr != nil {
+			return resetQuestionsLegacy(lr, onlyPending, project)
+		}
 		return missingSessionResult()
 	}
 	stateFile, exists := poolExists(session, project)
@@ -973,6 +1430,47 @@ func resetQuestionsTool(onlyPending bool, session, project string) map[string]in
 			"remaining_count": len(remaining),
 			"total_pending":   0,
 			"pool_location":   stateFile,
+		}
+	})
+}
+
+// resetQuestionsLegacy serves reset_questions on the legacy route.
+func resetQuestionsLegacy(lr *legacyRoute, onlyPending bool, project string) map[string]interface{} {
+	return withLegacyLock(lr, func() map[string]interface{} {
+		state, err := loadLegacyState(lr)
+		if err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		allQuestions := legacyQuestions(state)
+
+		var remaining []Question
+		if onlyPending {
+			for _, q := range allQuestions {
+				if q.Status != "pending" {
+					remaining = append(remaining, q)
+				}
+			}
+		}
+
+		cleared := len(allQuestions) - len(remaining)
+		var qList []interface{}
+		for _, q := range remaining {
+			qList = append(qList, q.ToDict())
+		}
+		state["questions"] = qList
+		if err := saveLegacyState(lr, state); err != nil {
+			return map[string]interface{}{"error": err.Error()}
+		}
+		if err := syncLegacyToNew(lr, project); err != nil {
+			log.Printf("warning: legacy mirror sync failed: %v", err)
+		}
+
+		return map[string]interface{}{
+			"cleared_count":       cleared,
+			"remaining_count":     len(remaining),
+			"total_pending":       0,
+			"pool_location":       lr.file,
+			"deprecation_warning": legacyDeprecationWarning,
 		}
 	})
 }
