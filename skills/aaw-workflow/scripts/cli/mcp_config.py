@@ -199,6 +199,91 @@ def _is_legacy_uv_config(entry: dict) -> bool:
 
 
 # ===================================================================
+# JSON / JSONC loading helpers
+# ===================================================================
+
+
+def _strip_jsonc_comments(text: str) -> str:
+    """Remove // line comments and /* */ block comments from JSONC text.
+
+    Respects string literals so that a ``//`` or ``/*`` inside a quoted
+    string (e.g. a URL like ``"https://..."``) is never treated as a comment.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    in_string = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            # line comment: skip to end of line (keep the newline)
+            while i < n and text[i] not in "\r\n":
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            # block comment: skip to */ (preserve newlines for line numbers)
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                if text[i] in "\r\n":
+                    out.append(text[i])
+                i += 1
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _load_json_config(config_file: Path) -> dict:
+    """Load a JSON/JSONC config file.
+
+    - Missing file → empty dict (fresh write).
+    - Empty or comment-only file → empty dict (treated as an empty config).
+    - Parses ``//`` and ``/* */`` comments (Claude Code ~/.claude.json is JSONC).
+    - Raises ``MCPConfigError`` on unparseable content — the caller must NOT
+      overwrite the file in that case.
+    """
+    if not config_file.exists():
+        return {}
+    text = config_file.read_text("utf-8")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        stripped = _strip_jsonc_comments(text)
+        if not stripped.strip():
+            # Empty file or comment-only file → legitimate empty config
+            return {}
+        try:
+            data = json.loads(stripped)
+        except json.JSONDecodeError as e:
+            raise MCPConfigError(
+                f"配置文件无法解析（含注释或语法错误），为安全起见未做修改: {config_file}: {e}",
+                str(config_file),
+            ) from e
+    if not isinstance(data, dict):
+        raise MCPConfigError(
+            f"配置文件顶层不是 JSON 对象，为安全起见未做修改: {config_file}",
+            str(config_file),
+        )
+    return data
+
+
+# ===================================================================
 # PG05: Claude MCP configuration injection
 # ===================================================================
 
@@ -210,18 +295,14 @@ def upsert_claude_mcp(
 
     Scope (user vs project) is inferred from *skills_root*.
     Returns ``True`` when the file was modified.
+    Returns ``False`` when the file cannot be parsed (never overwrites).
     """
-    # 1. Read existing config
-    if config_file.exists():
-        try:
-            data = json.loads(config_file.read_text("utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = {}
-    else:
-        data = {}
-
-    if not isinstance(data, dict):
-        data = {}
+    # 1. Read existing config (JSONC-tolerant; refuse to overwrite on parse failure)
+    try:
+        data = _load_json_config(config_file)
+    except MCPConfigError as e:
+        logger.warning("%s", e)
+        return False
 
     # 2. Determine scope
     home = Path.home().resolve()
@@ -320,17 +401,13 @@ def upsert_opencode_mcp(config_file: Path, exe_path: Path) -> bool:
     """Upsert question-tracker into ``opencode.json``.
 
     Returns ``True`` when the file was modified.
+    Returns ``False`` when the file cannot be parsed (never overwrites).
     """
-    if config_file.exists():
-        try:
-            data = json.loads(config_file.read_text("utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = {}
-    else:
-        data = {}
-
-    if not isinstance(data, dict):
-        data = {}
+    try:
+        data = _load_json_config(config_file)
+    except MCPConfigError as e:
+        logger.warning("%s", e)
+        return False
 
     entry = {
         "type": "local",
