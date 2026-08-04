@@ -134,6 +134,36 @@ def test_issue_image_upload_bind_render_and_delayed_remove(client):
     assert detail["activities"][-1]["details"]["images_removed"] == 1
 
 
+def test_issue_allows_image_only_description(client):
+    uploaded = client.post(
+        "/api/v1/issues/images",
+        files={"image": ("screen.png", image_bytes(), "image/png")},
+    ).json()
+    document = {
+        "version": 1,
+        "nodes": [{"type": "image", "image_id": uploaded["id"], "alt": "问题截图 1"}],
+    }
+    created = client.post(
+        "/api/v1/issues",
+        json=issue_payload(description="", description_doc=document),
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["description"] == ""
+    assert created.json()["image_count"] == 1
+
+    invalid = client.post(
+        "/api/v1/issues",
+        json=issue_payload(
+            description="",
+            description_doc={
+                "version": 1,
+                "nodes": [{"type": "text", "text": ""}],
+            },
+        ),
+    )
+    assert invalid.status_code == 400
+
+
 def test_issue_image_validation_binding_and_optimistic_lock(client):
     invalid = client.post(
         "/api/v1/issues/images",

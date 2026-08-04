@@ -278,7 +278,7 @@ def issue_document_image_ids(document: IssueDescriptionDocument | None) -> list[
 
 class IssueCreate(StrictModel):
     title: str = Field(min_length=1, max_length=100)
-    description: str = Field(min_length=1, max_length=10_000)
+    description: str = Field(max_length=10_000)
     reporter: str = Field(min_length=1, max_length=100)
     assignee: IssueAssignee
     priority: IssuePriority = "medium"
@@ -289,13 +289,18 @@ class IssueCreate(StrictModel):
     ar: str | None = Field(default=None, max_length=128)
     description_doc: IssueDescriptionDocument | None = None
 
-    @field_validator("title", "description", "reporter")
+    @field_validator("title", "reporter")
     @classmethod
     def strip_required_text(cls, value: str) -> str:
         value = value.strip()
         if not value:
             raise ValueError("must not be blank")
         return value
+
+    @field_validator("description")
+    @classmethod
+    def strip_description(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("component", "sr", "ar")
     @classmethod
@@ -304,17 +309,19 @@ class IssueCreate(StrictModel):
 
     @model_validator(mode="after")
     def validate_description_document(self) -> IssueCreate:
-        if (
-            self.description_doc is not None
-            and issue_document_text(self.description_doc) != self.description
-        ):
+        if self.description_doc is None:
+            if not self.description:
+                raise ValueError("description must contain text or an image")
+        elif issue_document_text(self.description_doc) != self.description:
             raise ValueError("description must match the visible text in description_doc")
+        elif not self.description and not issue_document_image_ids(self.description_doc):
+            raise ValueError("description must contain text or an image")
         return self
 
 
 class IssueUpdate(StrictModel):
     title: str | None = Field(default=None, min_length=1, max_length=100)
-    description: str | None = Field(default=None, min_length=1, max_length=10_000)
+    description: str | None = Field(default=None, max_length=10_000)
     reporter: str | None = Field(default=None, min_length=1, max_length=100)
     assignee: IssueAssignee | None = None
     priority: IssuePriority | None = None
@@ -332,7 +339,7 @@ class IssueUpdate(StrictModel):
             raise ValueError("at least one field is required")
         return self
 
-    @field_validator("title", "description", "reporter")
+    @field_validator("title", "reporter")
     @classmethod
     def strip_updated_required_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -341,6 +348,11 @@ class IssueUpdate(StrictModel):
         if not value:
             raise ValueError("must not be blank")
         return value
+
+    @field_validator("description")
+    @classmethod
+    def strip_updated_description(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
 
     @field_validator("component", "sr", "ar")
     @classmethod
@@ -354,4 +366,8 @@ class IssueUpdate(StrictModel):
                 raise ValueError("description is required with description_doc")
             if issue_document_text(self.description_doc) != self.description:
                 raise ValueError("description must match the visible text in description_doc")
+            if not self.description and not issue_document_image_ids(self.description_doc):
+                raise ValueError("description must contain text or an image")
+        elif "description" in self.model_fields_set and self.description == "":
+            raise ValueError("description must contain text or an image")
         return self
