@@ -12,6 +12,7 @@
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
   const MAX_IMAGES = 10;
   const state = { items: [], editingId: null, version: null, pending: 0, failed: 0 };
+  let pasteQueue = Promise.resolve();
   const $ = selector => document.querySelector(selector);
   const editor = () => $("#descriptionEditor");
 
@@ -308,6 +309,16 @@
     selection.addRange(range);
   }
 
+  function placeCaretAfter(node) {
+    const range = document.createRange();
+    range.setStartAfter(node);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    editor().focus();
+  }
+
   function insertPlainText(text) {
     if (!text) return;
     insertAtCaret(document.createTextNode(text));
@@ -352,7 +363,10 @@
     try {
       const uploaded = await request("/issues/images", { method: "POST", body });
       const alt = `问题截图 ${uploadedImageCount() + 1}`;
-      placeholder.replaceWith(createImageNode(uploaded.id, alt));
+      const imageNode = createImageNode(uploaded.id, alt);
+      const editorHasFocus = document.activeElement === editor() || editor().contains(document.activeElement);
+      placeholder.replaceWith(imageNode);
+      if (editorHasFocus) placeCaretAfter(imageNode);
     } catch (error) {
       state.failed += 1;
       placeholder.className = "editor-image is-failed";
@@ -413,8 +427,8 @@
   async function save(event) {
     event.preventDefault();
     const serialized = serializeEditor();
-    if (!serialized.description) {
-      updateEditorState("问题描述需要包含文字", true);
+    if (!serialized.description && !serialized.imageCount) {
+      updateEditorState("问题描述需要包含文字或图片", true);
       editor().focus();
       return;
     }
@@ -459,11 +473,27 @@
     };
     editor().addEventListener("input", () => updateEditorState());
     editor().addEventListener("paste", event => {
-      const images = [...event.clipboardData.files].filter(file => file.type.startsWith("image/"));
       event.preventDefault();
-      const text = event.clipboardData.getData("text/plain");
-      if (text) insertPlainText(text);
-      if (images.length) addFiles(images);
+      const items = [...event.clipboardData.items];
+      pasteQueue = pasteQueue.then(async () => {
+        let insertedPlainText = false;
+        for (const item of items) {
+          if (item.kind === "string" && item.type.startsWith("text/plain")) {
+            const text = await new Promise(resolve => item.getAsString(resolve));
+            if (text) insertPlainText(text);
+            insertedPlainText = true;
+          } else if (item.kind === "file") {
+            const file = item.getAsFile();
+            if (file && IMAGE_TYPES.has(file.type)) addFiles([file]);
+          }
+        }
+        if (!insertedPlainText) {
+          const text = event.clipboardData.getData("text/plain");
+          if (text) insertPlainText(text);
+        }
+      }).catch(error => {
+        updateEditorState(`粘贴失败：${error.message}`, true);
+      });
     });
     document.querySelectorAll("[data-close]").forEach(
       button => (button.onclick = () => button.closest("dialog").close())
