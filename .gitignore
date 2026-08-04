@@ -5,6 +5,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 dist/
 *.egg-info/
 .venv/
@@ -31,3 +32,7 @@ Desktop.ini
 
 # Environment
 .env
+
+# Local Skill Eval runtime
+.skill-eval-data/
+skill-eval/.coverage

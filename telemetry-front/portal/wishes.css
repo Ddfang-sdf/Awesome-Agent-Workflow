@@ -7,7 +7,8 @@
 
 /* Structured issue description editor and image viewer. */
 .dialog { width:min(720px,calc(100% - 28px)); }
-.description-field { min-width:0; }
+.description-field { display:grid; min-width:0; gap:6px; color:var(--soft); font-size:13px; font-weight:700; }
+.field-label { display:block; }
 .editor-toolbar,.editor-meta { display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--mute); font-size:12px; font-weight:500; }
 .editor-insert { padding:6px 10px; }
 .rich-editor { min-height:150px; max-height:360px; overflow:auto; padding:11px; border:1px solid #ddd7cc; border-radius:8px; background:#fff; color:var(--ink); font:400 14px/1.55 var(--body); white-space:pre-wrap; outline:none; }

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>测试看板 · Adoption Studio</title>
 <link rel="stylesheet" href="vendor/fonts.css" />
-<link rel="stylesheet" href="bright.css?v=20260727-1" />
+<link rel="stylesheet" href="bright.css?v=20260803-1" />
 </head>
 <body data-loading="true" data-dashboard="test" data-dashboard-api-prefix="/testing/dashboard">
 <div class="wash" aria-hidden="true"></div>
@@ -56,7 +56,7 @@
   <section class="grid">
     <article class="card" style="--span:7"><header class="card__head"><h2>趋势 · 采纳率与产出</h2><div class="toggle" id="trendToggle" role="tablist" aria-label="趋势指标"></div></header><div class="plot" id="trendChart"></div></article>
     <article class="card" style="--span:5"><header class="card__head"><h2>组件构成</h2><span class="hint" id="compoHint">按生成代码量占比</span></header><div class="compo" id="componentCompo"></div></article>
-    <article class="card" style="--span:12"><header class="card__head"><h2>人员产出 · 生成与合入</h2><span class="hint">TOP 榜按生成量排序，绿段为已合入部分</span></header><div class="plot plot--tall" id="personChart"></div><div class="pager" id="personPager" aria-label="人员产出分页"></div></article>
+    <article class="card" style="--span:12"><header class="card__head"><h2>人员产出 · 生成与合入</h2><span class="hint">TOP 榜按生成量排序，绿段为已合入部分</span></header><div class="plot plot--tall plot--selectable" id="personChart"></div><div class="pager" id="personPager" aria-label="人员产出分页"></div></article>
     <article class="card" style="--span:12"><header class="card__head"><h2>组件明细</h2><span class="hint" id="tableCount">—</span></header><div class="table-wrap"><table class="ledger"><thead><tr><th class="th-name">组件</th><th class="th-num" data-sort="usageCount">使用次数</th><th class="th-num" data-sort="generatedLines">生成代码量</th><th class="th-num" data-sort="mergedLines80">合入·80%</th><th class="th-num" data-sort="mergedLines90">合入·90%</th><th class="th-num" data-sort="adoptionRate80">采纳率·80%</th><th class="th-num" data-sort="adoptionRate90">采纳率·90%</th></tr></thead><tbody id="ledgerBody"></tbody></table></div><div class="pager" id="componentPager" aria-label="组件明细分页"></div></article>
   </section>
 </main>
@@ -64,6 +64,6 @@
 <script src="vendor/echarts.min.js"></script>
 <script src="config.js"></script>
 <script src="mock-data.js?v=20260720-1"></script>
-<script src="bright.js?v=20260725-1"></script>
+<script src="bright.js?v=20260803-1"></script>
 </body>
 </html>

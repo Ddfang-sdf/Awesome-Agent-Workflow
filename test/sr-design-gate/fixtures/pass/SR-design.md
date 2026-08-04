@@ -10,11 +10,31 @@
 
 ## 3. 外部依赖
 
-支付适配服务 SLA 为 99.9%，调用超时为 3 秒。
+### 3.1 支付适配状态查询
+
+基本契约：订单模块通过 RPC `PaymentAdapter.getStatus` 调用支付适配模块，复用规范 `contracts/payment-adapter.md` 修订版 2.1。
+
+| 字段路径 | 位置 | 类型 | 必填 | 可空 | 默认值 | 约束 | 业务语义 | 敏感级别 | 示例 |
+|---|---|---|---|---|---|---|---|---|---|
+| requestId | RPC | string | 是 | 否 | 无 | 1-64 字符 | 幂等请求标识 | 内部 | req-001 |
+
+响应字段 `available: boolean` 必返且不可空，表示适配服务是否可用。错误 `PAYMENT_ADAPTER_TIMEOUT` 在 3 秒超时时触发，调用方可幂等重试一次，无部分成功或副作用。使用服务身份认证，SLA 99.9%，限流 1000 QPS，熔断后拒绝创建订单，契约向后兼容。结构简单，完整示例不适用：字段表示例已完整表达契约。
 
 ## 4. 对外接口
 
-`POST /orders` 接收字符串 `requestId`，超时 3 秒，错误码为 `ORDER_CREATE_FAILED`。
+### 4.1 创建订单
+
+基本契约：调用方通过 HTTP `POST /orders` 调用订单模块，契约版本 v1，本次新增。
+
+| 字段路径 | 位置 | 类型 | 必填 | 可空 | 默认值 | 约束 | 业务语义 | 敏感级别 | 示例 |
+|---|---|---|---|---|---|---|---|---|---|
+| requestId | body | string | 是 | 否 | 无 | 1-64 字符 | 幂等请求标识 | 内部 | req-001 |
+
+| 字段路径 | 状态/结果 | 类型 | 必返 | 可空 | 默认值 | 约束 | 业务语义 | 敏感级别 | 示例 |
+|---|---|---|---|---|---|---|---|---|---|
+| orderId | HTTP 201 | string | 是 | 否 | 无 | 1-64 字符 | 新建订单标识 | 内部 | order-001 |
+
+错误 `ORDER_CREATE_FAILED` 返回 HTTP 503，表示订单创建失败；调用方可使用同一 `requestId` 重试一次，不产生重复订单。接口使用 OAuth2、`requestId` 幂等、3 秒超时、1000 QPS 限流、P99 小于 200ms，版本 v1 向后兼容，无部分成功。结构简单，完整示例不适用：字段表示例已完整表达契约。
 
 ## 5. 功能设计
 
@@ -22,9 +42,45 @@
 
 校验请求，创建订单，再返回订单 ID。
 
+```mermaid
+sequenceDiagram
+    participant C as 调用方
+    participant O as 订单模块
+    participant P as 支付适配模块
+
+    rect rgb(255, 237, 213)
+        Note over C,P: 图例：变更
+    end
+    rect rgb(255, 237, 213)
+        C->>O: POST /orders（requestId）
+        O->>P: 校验支付适配状态
+        P-->>O: 返回适配状态
+        O-->>C: 返回订单 ID
+    end
+```
+
 ### 5.2 整体架构
 
 订单模块调用支付适配模块，不产生反向依赖。
+
+```mermaid
+graph LR
+    C[调用方] -->|POST /orders| O[订单模块]
+    O -->|校验适配状态| P[支付适配模块]
+
+    subgraph Legend[图例]
+        direction LR
+        LG_UNCHANGED[不变]
+        LG_CHANGED[变更]
+    end
+
+    classDef changed fill:#ffedd5,stroke:#ea580c,stroke-width:2px;
+    classDef unchanged fill:#f3f4f6,stroke:#6b7280,stroke-width:1px;
+    class C,P,LG_UNCHANGED unchanged;
+    class O,LG_CHANGED changed;
+    linkStyle 0 stroke:#ea580c,stroke-width:2px;
+    linkStyle 1 stroke:#6b7280,stroke-width:1px;
+```
 
 ### 5.3 模块交互时序（模块视角）
 
@@ -58,40 +114,16 @@
 
 接口 P99 小于 200ms；外部依赖超时不计入该指标。
 
-## 7. AR 拆分与交互定义
-
-### 7.1 AR 拆分概览
-
-| AR ID | 标题 | 范围与价值 | 模块 | 优先级 | 依赖 |
-|---|---|---|---|---|---|
-| AR-001 | 订单创建 | 交付订单创建闭环 | 订单模块 | P0 | 无 |
-
-### 7.2 AR 依赖关系图
-
-AR-001 无前置 AR。
-
-### 7.3 AR 间交互接口
-
-只有一个 AR，无 AR 间接口。
-
-### 7.4 AR 边界说明
-
-AR-001 承担订单创建，不承担支付渠道实现。
-
-## 8. 需求追溯
-
-订单创建需求由 AR-001 完整承接。
-
-## 9. 配置设计
+## 7. 配置设计
 
 `order.create.timeoutSeconds` 为整数，默认值 3，单位秒。
 
-## 10. SR 整体验收标准
+## 8. SR 整体验收标准
 
-### 10.1 验收标准总览
+### 8.1 验收标准总览
 
 订单创建成功返回订单 ID，失败返回统一错误码。
 
-### 10.2 系统层级黑盒测试用例
+### 8.2 系统层级黑盒测试用例
 
 调用 `POST /orders`，断言成功、幂等重试和超时失败路径。

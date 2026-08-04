@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AAW Skill Eval</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="AAW Skill Eval 首页">
+        <span class="brand-mark">A</span>
+        <span><strong>AAW Skill Eval</strong><small>Local evaluation studio</small></span>
+      </a>
+      <div class="topbar-actions">
+        <span id="runtimeBadge" class="runtime-badge"><i></i> 检查 Runner…</span>
+        <button class="button button-primary" data-open="newSuite">新建测试</button>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">AGENT SKILL EVALUATION</p>
+          <h1>让 Skill 的效果<br><span>有证据可比较</span></h1>
+          <p class="hero-copy">同项目、同模型、同评分规则，对比无 Skill、基准版本和当前版本。只呈现得分与事实，不替你下结论。</p>
+          <div class="hero-actions">
+            <button class="button button-primary button-large" data-open="newSuite">创建第一个测试</button>
+            <button class="button button-ghost button-large" data-scroll="experiments">查看最近实验</button>
+          </div>
+        </div>
+        <div class="hero-visual" aria-hidden="true">
+          <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+          <div class="score-core"><span id="heroScore">—</span><small>最近均分</small></div>
+          <div class="float-card card-a"><small>vs 无 Skill</small><strong id="heroDelta">—</strong></div>
+          <div class="float-card card-b"><small>正式实验</small><strong>3× trials</strong></div>
+          <div class="float-card card-c"><small>Judge</small><strong>Blind</strong></div>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="概览">
+        <article><small>已登记 Skill</small><strong id="metricSkills">0</strong><span>完整目录哈希版本</span></article>
+        <article><small>已验证项目</small><strong id="metricProjects">0</strong><span>项目之间等权聚合</span></article>
+        <article><small>最近实验</small><strong id="metricExperiments">0</strong><span>不可变运行记录</span></article>
+        <article><small>运行队列</small><strong id="metricQueue">0</strong><span>本地串行执行</span></article>
+      </section>
+
+      <section class="section" id="skills">
+        <div class="section-heading">
+          <div><p class="eyebrow">SKILL SCOREBOARD</p><h2>最近得分</h2></div>
+          <div class="score-actions">
+            <select id="runnerFilter" aria-label="筛选 Runner"><option value="">全部 Runner</option></select>
+            <select id="judgeFilter" aria-label="筛选 Judge"><option value="">全部 Judge</option></select>
+            <select id="modeFilter" aria-label="筛选模式"><option value="">全部模式</option><option value="formal">正式</option><option value="quick">快速</option></select>
+            <select id="profileFilter" aria-label="选择 Profile"><option value="">选择 Profile 看均分</option></select>
+            <button class="button button-ghost" id="refreshButton">刷新数据</button>
+          </div>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Skill</th><th>项目</th><th>Runner</th><th>Judge</th><th>当前分</th><th>vs 无 Skill</th><th>vs 基准</th><th>最近实验</th></tr></thead>
+            <tbody id="skillRows"><tr><td colspan="8" class="empty">尚无评测数据</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section split" id="experiments">
+        <div>
+          <div class="section-heading"><div><p class="eyebrow">RUN HISTORY</p><h2>最近实验</h2></div></div>
+          <div id="experimentList" class="experiment-list"></div>
+        </div>
+        <aside class="launch-card">
+          <p class="eyebrow">RUN A SUITE</p>
+          <h3>运行已保存套件</h3>
+          <label>测试套件<select id="runSuite"></select></label>
+          <div class="field-grid">
+            <label>Runner<select id="runnerProvider"></select></label>
+            <label>模式<select id="runMode"><option value="formal">正式 · 每组 3 次</option><option value="quick">快速 · 每组 1 次</option></select></label>
+          </div>
+          <div id="runnerCodexConfig">
+            <label>Codex 模型<input id="runnerCodexModel" placeholder="请输入显式模型 ID" autocomplete="off"></label>
+            <label>推理强度<select id="runnerEffort"><option>high</option><option>medium</option><option>xhigh</option><option>low</option></select></label>
+          </div>
+          <div id="runnerChrysConfig" class="hidden">
+            <label>Chrys Model Profile<select id="runnerChrysModel"></select></label>
+            <p class="form-hint warning">Chrys 使用软隔离，网络未强制隔离。</p>
+          </div>
+          <label class="check-label"><input type="checkbox" id="judgeSame" checked><span>Judge 与 Runner 使用同一平台和模型</span></label>
+          <div id="judgeConfig" class="judge-config hidden">
+            <label>Judge<select id="judgeProvider"></select></label>
+            <div id="judgeCodexConfig">
+              <label>Codex Judge 模型<input id="judgeCodexModel" placeholder="请输入显式模型 ID" autocomplete="off"></label>
+              <label>Judge 推理强度<select id="judgeEffort"><option>high</option><option>medium</option><option>xhigh</option><option>low</option></select></label>
+            </div>
+            <div id="judgeChrysConfig" class="hidden">
+              <label>Chrys Judge Model Profile<select id="judgeChrysModel"></select></label>
+            </div>
+          </div>
+          <p id="profileHint" class="form-hint">正式实验会固化 Runner、Judge、模型、版本、隔离与评分配置。</p>
+          <button class="button button-primary button-block" id="runButton">加入本地队列</button>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="newSuite" class="modal">
+    <form class="modal-card" id="suiteForm" novalidate>
+      <div class="modal-head"><div><p class="eyebrow">NEW EVALUATION SUITE</p><h2>创建 Skill 测试</h2></div><button type="button" class="icon-button" data-close="newSuite" aria-label="关闭">×</button></div>
+      <div class="stepper"><span class="active">1 输入</span><span>2 评分草案</span><span>3 保存</span></div>
+      <div class="field-grid">
+        <label>本地 Git 项目地址<input id="projectPath" required placeholder="D:\projects\example"></label>
+        <label>Skill 目录或 SKILL.md<input id="skillPath" required placeholder="D:\skills\module-design"></label>
+      </div>
+      <label>Skill 的输入<textarea id="skillInput" required rows="5" placeholder="描述要让 Agent 完成的真实任务"></textarea></label>
+      <label>预期效果（仅评测器可见）<textarea id="expected" required rows="5" placeholder="描述可验证的最终结果、约束和质量标准，或从下方导入 Markdown"></textarea></label>
+      <div class="markdown-import">
+        <label>从 Markdown 文件导入<input id="expectedFile" type="file" accept=".md,.markdown,text/markdown,text/plain"></label>
+        <p id="expectedFileStatus" class="form-hint">文件仅在浏览器本地读取，内容会填入上方文本框。</p>
+      </div>
+      <button type="button" class="button button-primary" id="draftButton">生成评分草案</button>
+      <div id="draftPanel" class="draft-panel hidden">
+        <div class="verified-context" id="verifiedContext"></div>
+        <label>套件名称<input id="suiteName" placeholder="例如：module-design / order-service"></label>
+        <label>评分用例 JSON<textarea id="caseJson" class="code-area" rows="18"></textarea></label>
+        <details><summary>环境准备（可选）</summary>
+          <label>Setup 命令，每行一条<textarea id="setupCommands" rows="3" placeholder="uv sync --frozen"></textarea></label>
+          <label>Preflight 命令，每行一条<textarea id="preflightCommands" rows="3" placeholder="uv run pytest --collect-only -q"></textarea></label>
+        </details>
+        <p class="form-hint warning">Setup 与 command grader 是本地可信命令。保存前请确认命令、权重、hard gate 和 Rubric。</p>
+        <button type="button" class="button button-primary" id="saveSuiteButton">确认并保存套件</button>
+      </div>
+      <div id="suiteMessage" class="message hidden"></div>
+    </form>
+  </dialog>
+
+  <dialog id="detailModal" class="modal modal-wide">
+    <div class="modal-card">
+      <div class="modal-head"><div><p class="eyebrow">EXPERIMENT DETAIL</p><h2 id="detailTitle">实验详情</h2></div><button class="icon-button" data-close="detailModal" aria-label="关闭">×</button></div>
+      <div id="detailBody"></div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
