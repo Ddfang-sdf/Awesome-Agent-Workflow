@@ -10,13 +10,27 @@ from typing import Annotated
 import typer
 
 from .models import DataError, WorkflowError
-from .telemetry import TelemetryClient, TelemetryError, TelemetryStore, aaw_version
+from .telemetry import TelemetryClient, TelemetryError, TelemetryStore, aaw_version, telemetry_config
 from .update import UpdateError, auto_update_on_entry, consume_handoff, run_update
 from .workflow import WorkflowManager
+
+# Typer renders the epilog with rich: single newlines are collapsed and each
+# blank-line-separated paragraph becomes one rendered line.
+_TELEMETRY_HELP = "\n\n".join(
+    [
+        "遥测开关：打点上报默认开启，关闭方式二选一。",
+        "方式一：设置环境变量 AAW_TELEMETRY_ENABLED=false",
+        "方式二：在 <仓库根>/.aaw/telemetry.yaml 中写 enabled: false",
+        "配置优先级：环境变量 > 项目级 .aaw/telemetry.yaml > 内置默认值。",
+        "关闭后不生成代码快照，也不发起任何上报请求。",
+        "上报地址可用环境变量 AAW_TELEMETRY_ENDPOINT 覆盖。",
+    ]
+)
 
 app = typer.Typer(
     name="aaw",
     help="AAW Workflow CLI",
+    epilog=_TELEMETRY_HELP,
     no_args_is_help=True,
 )
 
@@ -45,6 +59,16 @@ def _get_manager() -> WorkflowManager:
 
 def _get_telemetry() -> TelemetryStore:
     return TelemetryStore(Path.cwd())
+
+
+def _telemetry_enabled() -> bool:
+    # Fail closed: a broken telemetry config warns and stops reporting instead
+    # of breaking the workflow command.
+    try:
+        return telemetry_config(Path.cwd()).enabled
+    except TelemetryError as e:
+        typer.echo(f"telemetry warning: {e}", err=True)
+        return False
 
 
 def _die(msg: str, code: int = 1) -> None:
@@ -279,6 +303,7 @@ def next(
         _die(str(e))
 
     telemetry_results = []
+    telemetry_on = _telemetry_enabled()
     for ready_step in mgr.get_ready(wf):
         if ready_step.execution not in {"skill", "prompt"}:
             continue
@@ -289,6 +314,10 @@ def next(
             started_step = mgr.mark_started(wf, ready_step.id, attempt)
         except WorkflowError as e:
             _die(str(e))
+        # `mark_started` above is workflow logic and always runs; the telemetry
+        # snapshot/send below is skipped entirely when reporting is off.
+        if not telemetry_on:
+            continue
         if started_step.type == "task-dev":
             try:
                 _get_telemetry().dev_started(wf, started_step, attempt)
@@ -388,23 +417,25 @@ def done(
         _die(str(e))
 
     # `next` persists the actual start timestamp; `done` sends the terminal Step.
-    store = _get_telemetry()
-    dev_state = None
-    telemetry_succeeded = False
-    try:
-        file = None
-        if step.type == "task-dev":
-            dev_state = store.dev_finished(wf, step, step.attempt)
-            file = dev_state["file"]
-        message = store.step_message(wf, step, "done", file=file)
-        result["telemetry"] = TelemetryClient(Path.cwd()).send(message, dev_state)
-        telemetry_succeeded = True
-    except (OSError, TelemetryError) as e:
-        typer.echo(f"telemetry warning: {e}", err=True)
-        result["telemetry"] = {"status": "failed", "error": str(e)}
-    finally:
-        if step.type == "task-dev" and telemetry_succeeded:
-            store.cleanup_step(wf, step, step.attempt, dev_state)
+    if _telemetry_enabled():
+        store = None
+        dev_state = None
+        telemetry_succeeded = False
+        try:
+            store = _get_telemetry()
+            file = None
+            if step.type == "task-dev":
+                dev_state = store.dev_finished(wf, step, step.attempt)
+                file = dev_state["file"]
+            message = store.step_message(wf, step, "done", file=file)
+            result["telemetry"] = TelemetryClient(Path.cwd()).send(message, dev_state)
+            telemetry_succeeded = True
+        except (OSError, TelemetryError) as e:
+            typer.echo(f"telemetry warning: {e}", err=True)
+            result["telemetry"] = {"status": "failed", "error": str(e)}
+        finally:
+            if store is not None and step.type == "task-dev" and telemetry_succeeded:
+                store.cleanup_step(wf, step, step.attempt, dev_state)
 
     if use_json:
         _echo_json(result)
