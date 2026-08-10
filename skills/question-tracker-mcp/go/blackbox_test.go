@@ -844,9 +844,15 @@ func TestBB_Upgrade_FullLink(t *testing.T) {
 		t.Errorf("expected 1 archive for SR-001, got %d", len(archives))
 	}
 
-	// 5. legacy directory removed
-	if _, err := os.Stat(filepath.Join(workDir, ".sdd", "SR-001")); !os.IsNotExist(err) {
-		t.Error("legacy session directory should be removed after finalize")
+	// 5. legacy pool file + marker retired; legacy directory preserved
+	if _, err := os.Stat(filepath.Join(workDir, ".sdd", "SR-001", ".question_state.json")); !os.IsNotExist(err) {
+		t.Error("legacy pool file should be removed after finalize")
+	}
+	if _, err := os.Stat(filepath.Join(workDir, ".sdd", ".current_session")); !os.IsNotExist(err) {
+		t.Error("legacy marker should be removed after finalize")
+	}
+	if info, err := os.Stat(filepath.Join(workDir, ".sdd", "SR-001")); err != nil || !info.IsDir() {
+		t.Error("legacy session directory must be preserved (user workspace)")
 	}
 }
 

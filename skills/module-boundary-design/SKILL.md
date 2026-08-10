@@ -50,14 +50,22 @@ version: "2.3.2.1"
 | `delete_session` | 必填 | 删除活跃池（需 confirm: true） |
 | `cleanup_sessions` | 不需要 | 归档池受控清理（默认只列不删） |
 
-若调用 MCP 工具报错（未注册或连接失败），不得跳过问题池跟踪继续执行：中止当前流程，提示用户参照 `skills/question-tracker-mcp/INSTALL.md` 完成注册并重启后重试。
+**MCP 错误处理**（任何错误都不得成为跳过问题池跟踪的理由）：
+
+| 错误类型 | 判定方式 | 处置 |
+|---|---|---|
+| 基础设施故障 | 工具不存在、未注册或连接失败 | 中止当前流程，提示用户参照 `skills/question-tracker-mcp/INSTALL.md` 完成注册并重启后重试 |
+| `missing_session` | 工具结果含 `"error": "missing_session"` | 立即 `list_sessions`：有候选池 → 展示给用户指定；无候选 → 按命名规范当场 `add_questions` 建池后继续 |
+| `session_not_found` | 工具结果含 `"error": "session_not_found"`（附 `available_sessions`） | 将候选池展示给用户确认后重试；确认从未建池才允许按命名规范 `add_questions` 建池。不得自行换池名猜测重试 |
+
+工具返回 `isError` 或结果中含 `"error"` 字段即视为失败调用：必须先按上表处置，严禁静默跳过问题池、退化为纯对话提问。
 
 ### 问题池调用纪律
 
 1. **session 必填**：所有池操作必须传 session。忘记池名时先 `list_sessions`，不得随意起名另开新池。
 2. **命名规范**：`<工作单元编号>-<语义关键词>`。编号精确索引（如 `sr001`、`sr001-ar002`），关键词帮助失忆后的 AI 从列表中联想找回。
 3. **list-first**：启动时先 `list_sessions` 检查目标池是否存在，存在则续用，不存在再 `add_questions` 新建。
-4. **无法确定时问人**：凭语义无法唯一确定目标池时，不得猜测，必须将 `list_sessions` 的结果展示给用户，请用户指定。
+4. **无法确定时问人**：任何时刻凭语义无法唯一确定目标池——启动选池、工具返回 `missing_session`/`session_not_found` 后的恢复、上下文压缩后池名不确定——不得猜测，必须将 `list_sessions` 的结果展示给用户，请用户指定。
 5. **池名不含敏感信息**：同一 project 下池名对所有调用方可见，不得包含密码、密钥、个人隐私。
 
 本 Skill 的问题池使用与本 AR 的 ar-clarify **完全相同的 session 名**（`{SR编号}-{AR编号}-<语义关键词>`）。同 AR 的澄清决策与边界冲突问题记录在同一池中，该 AR 的全部决策轨迹集中可追溯。
@@ -93,11 +101,11 @@ version: "2.3.2.1"
 2. 调用 `list_sessions`（`include_archived: true`）定位该池：
    - **在归档区**（存在 `{池名}-<日期后缀>`，说明 ar-clarify 已 finalize）→ 调用 `reopen_session`（`session: <含日期后缀的归档名>`）将池重开回活跃区，该 AR 的澄清决策全部恢复可见；
    - **在活跃区**（说明 ar-clarify 异常中断、未 finalize）→ 直接使用，调用 `get_status`（`session: <池名>`）加载既有内容；
-   - **两处都不存在**（ar-clarify 未执行过）→ 直接进入后续流程，首次 `add_questions` 自动建池。
+   - **两处都不存在**（ar-clarify 未执行过）→ 不得继续裸跑：首次提问前必须先 `add_questions` 建池并确认成功返回，否则不得开始提问。
 
 **SR 模式（免拆分，AR=ALL，不经过 ar-clarify）**：
 
-- 池名：`{SR编号}-ALL-<语义关键词>`；无需 reopen，首次 `add_questions` 自动建池。
+- 池名：`{SR编号}-ALL-<语义关键词}`；无需 reopen，首次提问前先 `add_questions` 建池并确认成功返回，否则不得开始提问。
 
 ---
 
