@@ -503,6 +503,12 @@ type legacyRoute struct {
 
 // resolveLegacyRoute reads .sdd/.current_session and resolves the legacy
 // session directory. Returns nil when the marker is missing or blank.
+//
+// The marker content is untrusted input written by old tooling. The target
+// must be a relative path strictly inside ".sdd/" (e.g. ".sdd/SR-001" or
+// ".sdd/SR-001/AR-001") — anything else (absolute paths, ".." escapes, the
+// ".sdd" root itself) is rejected as if no marker existed, so the legacy
+// route can never read, write, or delete outside the legacy pool area.
 func resolveLegacyRoute() *legacyRoute {
 	data, err := os.ReadFile(legacyMarkerPath)
 	if err != nil {
@@ -513,8 +519,18 @@ func resolveLegacyRoute() *legacyRoute {
 		return nil
 	}
 	dir := filepath.Clean(target)
-	session := filepath.Base(dir)
-	if session == "" || session == "." || session == string(filepath.Separator) {
+	if filepath.IsAbs(dir) {
+		return nil
+	}
+	// After Clean, a relative path can only have ".." as leading segments,
+	// so requiring the first segment to be exactly ".sdd" (with at least one
+	// segment below it) excludes every escape form.
+	parts := strings.Split(filepath.ToSlash(dir), "/")
+	if len(parts) < 2 || parts[0] != ".sdd" {
+		return nil
+	}
+	session := parts[len(parts)-1]
+	if session == "" || session == "." || session == ".." {
 		return nil
 	}
 	return &legacyRoute{
@@ -1128,7 +1144,10 @@ func finalizeQuestionsTool(session, project string) map[string]interface{} {
 }
 
 // finalizeLegacy serves finalize_questions on the legacy route: archives the
-// pool into the NEW mechanism's .archive/ and removes the legacy directory.
+// pool into the NEW mechanism's .archive/, then removes ONLY the legacy pool
+// file and the legacy marker. It must never remove the legacy directory
+// itself: .sdd/{SR}/ is the user's SR workspace holding their own design
+// documents — the MCP manages pool files only.
 func finalizeLegacy(lr *legacyRoute, project string) map[string]interface{} {
 	return withLegacyLock(lr, func() map[string]interface{} {
 		state, err := loadLegacyState(lr)
@@ -1167,16 +1186,20 @@ func finalizeLegacy(lr *legacyRoute, project string) map[string]interface{} {
 		}
 
 		// Mirror latest content into the new store, then archive the mirrored
-		// pool using the standard archiving logic, then remove the legacy dir.
+		// pool using the standard archiving logic. Only after a successful
+		// mirror, retire the legacy mechanism by removing its own two files:
+		// the pool file and the marker. Directories are never touched.
 		finalLocation := lr.file
 		if err := syncLegacyToNew(lr, project); err != nil {
 			log.Printf("warning: legacy mirror sync failed: %v", err)
 		} else {
 			finalLocation = archivePool(lr.session, project)
-		}
-
-		if err := os.RemoveAll(lr.dir); err != nil {
-			log.Printf("warning: failed to remove legacy dir %s: %v", lr.dir, err)
+			if err := os.Remove(lr.file); err != nil && !os.IsNotExist(err) {
+				log.Printf("warning: failed to remove legacy pool file %s: %v", lr.file, err)
+			}
+			if err := os.Remove(legacyMarkerPath); err != nil && !os.IsNotExist(err) {
+				log.Printf("warning: failed to remove legacy marker %s: %v", legacyMarkerPath, err)
+			}
 		}
 
 		return map[string]interface{}{
