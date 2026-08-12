@@ -170,8 +170,8 @@ func TestUpgrade_IT_UP_02_NoMarkerStillMissingSession(t *testing.T) {
 	defer os.Chdir(origCwd)
 
 	r := getStatusTool("summary", "", "")
-	if r["error"] != "missing_session" {
-		t.Errorf("expected missing_session without marker, got: %v", r["error"])
+	if r["reason"] != "missing_session" || r["error"] != nil {
+		t.Errorf("expected missing_session guidance without marker, got: %v", r)
 	}
 }
 
@@ -180,8 +180,8 @@ func TestUpgrade_IT_UP_03_BlankMarkerStillMissingSession(t *testing.T) {
 	defer os.Chdir(origCwd)
 
 	r := getStatusTool("summary", "", "")
-	if r["error"] != "missing_session" {
-		t.Errorf("expected missing_session with blank marker, got: %v", r["error"])
+	if r["reason"] != "missing_session" || r["error"] != nil {
+		t.Errorf("expected missing_session guidance with blank marker, got: %v", r)
 	}
 }
 
