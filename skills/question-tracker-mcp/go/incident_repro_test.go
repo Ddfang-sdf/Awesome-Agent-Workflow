@@ -146,12 +146,12 @@ func TestLegacyRouteRejectsUnsafeMarkerTargets(t *testing.T) {
 			}
 
 			r := getStatusTool("summary", "", "")
-			if r["error"] != "missing_session" {
-				t.Errorf("不安全标记 %q 应被拒绝为 missing_session，got: %v", target, r["error"])
+			if r["reason"] != "missing_session" || r["error"] != nil {
+				t.Errorf("不安全标记 %q 应被拒绝并给出 missing_session 指引，got: %v", target, r)
 			}
 			r = finalizeQuestionsTool("", "")
-			if r["error"] != "missing_session" {
-				t.Errorf("不安全标记 %q finalize 应被拒绝为 missing_session，got: %v", target, r["error"])
+			if r["reason"] != "missing_session" || r["error"] != nil {
+				t.Errorf("不安全标记 %q finalize 应被拒绝并给出 missing_session 指引，got: %v", target, r)
 			}
 			if _, err := os.Stat(canary); err != nil {
 				t.Errorf("金丝雀文件被动: %v", err)
