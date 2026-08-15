@@ -34,7 +34,7 @@
 | 1.10 | `.sdd/{SR}/{AR}/{模块组名}/模块详细设计说明书.md` | asis/SKILL.md, tobe/SKILL.md, test/SKILL.md, gate/SKILL.md |
 | 1.11 | `证据充分性` | gate/SKILL.md, references/gate-checklist.md |
 | 1.12 | `边界清晰性` | gate/SKILL.md, references/gate-checklist.md |
-| 1.13 | `决策定稿性` | gate/SKILL.md, references/gate-checklist.md |
+| 1.13 | `决策确定性` | gate/SKILL.md, references/gate-checklist.md |
 | 1.14 | `契约完整性` | gate/SKILL.md, references/gate-checklist.md |
 | 1.15 | `工程可执行性` | gate/SKILL.md, references/gate-checklist.md |
 | 1.16 | `验证闭环性` | gate/SKILL.md, references/gate-checklist.md |

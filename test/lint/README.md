@@ -18,7 +18,7 @@
 | 编号前缀 `R / A / E / K / D / TC / G / GAP` | 需求/ASIS结论/证据/契约/TOBE决策/用例/阻断/缺口 | 见下"编号一致性" |
 | `.sdd/software_architecture.md` | 模块边界唯一来源 | asis / gate SKILL.md |
 | `.sdd/{SR}/{AR}/{模块组名}/模块详细设计说明书.md` | 正式说明书路径契约 | asis / tobe / test / gate 全部 |
-| `七维度`（证据充分性/边界清晰性/决策定稿性/契约完整性/工程可执行性/验证闭环性/风险处置性） | 门禁准入维度 | gate SKILL.md + gate-result-template.md |
+| `七维度`（证据充分性/边界清晰性/决策确定性/契约完整性/工程可执行性/验证闭环性/风险处置性） | 门禁准入维度 | gate SKILL.md + gate-result-template.md |
 | `阻断问题四类`（EVIDENCE/BOUNDARY/EXECUTION/RISK） | 阻断问题分类 | gate SKILL.md + gate-result-template.md |
 
 ### 2. 术语一致性

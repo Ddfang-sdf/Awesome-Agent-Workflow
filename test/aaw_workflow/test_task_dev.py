@@ -247,7 +247,7 @@ class TaskDevStateMachineTests(unittest.TestCase):
             "- 修改文件：src/example.py\n"
             "- 核心实现：updated example\n"
             "- 设计偏差：无\n"
-            "- 挂账：无\n"
+            "- 待处理：无\n"
             "- 后续须知：无\n"
             "- 证据：AAW step 10 attempt 1\n",
             "utf-8",
