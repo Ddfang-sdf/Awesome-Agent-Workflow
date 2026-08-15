@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from conftest import (
     SECOND_MESSAGE_ID,
+    STARTED_AT,
     STEP_COMPLETED_AT,
     UPDATED_AT,
     WORKFLOW_ID,
@@ -132,9 +134,14 @@ def test_attribution_list_supports_filters_and_pagination(client):
 
 def test_trends_fill_empty_days_and_invalid_queries_are_stable(client):
     seed(client)
+    started_date = datetime.fromtimestamp(STARTED_AT / 1000, UTC).date()
     trends = client.get(
         "/api/v1/dashboard/trends",
-        params={"from": "2026-07-14", "to": "2026-07-16", "granularity": "day"},
+        params={
+            "from": (started_date - timedelta(days=1)).isoformat(),
+            "to": (started_date + timedelta(days=1)).isoformat(),
+            "granularity": "day",
+        },
     ).json()
     assert len(trends["points"]) == 3
     assert sum(row["workflow_runs"] for row in trends["points"]) == 1

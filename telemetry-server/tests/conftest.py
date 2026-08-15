@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,7 +27,12 @@ from aaw_telemetry.services.attribution_service import (
 WORKFLOW_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 MESSAGE_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 SECOND_MESSAGE_ID = uuid.UUID("33333333-3333-4333-8333-333333333333")
-STARTED_AT = 1784077200000
+STARTED_AT = int(
+    (
+        datetime.now(UTC).replace(hour=1, minute=0, second=0, microsecond=0) - timedelta(days=3)
+    ).timestamp()
+    * 1000
+)
 STEP_STARTED_AT = STARTED_AT + 60_000
 STEP_COMPLETED_AT = STARTED_AT + 1_800_000
 UPDATED_AT = STEP_COMPLETED_AT + 1_000
