@@ -22,6 +22,8 @@ from ..schemas import TelemetrySyncRequest, TelemetrySyncResponse
 
 logger = logging.getLogger("aaw_telemetry.telemetry.sync")
 
+ENTRY_BY_STEP_TYPE = {"ar-init": "ar", "sr-init": "sr"}
+
 
 def _datetime(milliseconds: int) -> datetime:
     return datetime.fromtimestamp(milliseconds / 1000, tz=UTC)
@@ -98,7 +100,13 @@ class IngestionService:
         try:
             workflow = self._lock_workflow(payload.workflow_id)
             if workflow is None:
-                workflow = self._create_workflow(payload, payload_hash, now, workflow_kind)
+                workflow = self._create_workflow(
+                    payload,
+                    payload_hash,
+                    now,
+                    workflow_kind,
+                    entry=self._new_workflow_entry(payload),
+                )
                 self.session.add(workflow)
                 self.session.flush()
                 workflow_created = True
@@ -111,7 +119,13 @@ class IngestionService:
                     workflow_kind,
                 )
 
-            message = self._create_message(payload, payload_hash, now, workflow_kind)
+            message = self._create_message(
+                payload,
+                payload_hash,
+                now,
+                workflow_kind,
+                entry=workflow.entry,
+            )
             self.session.add(message)
             step_execution, step_created = self._upsert_step(payload, payload_hash, now)
             if step_created:
@@ -194,11 +208,17 @@ class IngestionService:
 
     @staticmethod
     def _create_workflow(
-        payload: TelemetrySyncRequest, payload_hash: str, now: datetime, workflow_kind: str
+        payload: TelemetrySyncRequest,
+        payload_hash: str,
+        now: datetime,
+        workflow_kind: str,
+        *,
+        entry: str | None,
     ) -> WorkflowRun:
         return WorkflowRun(
             id=payload.workflow_id,
             workflow_kind=workflow_kind,
+            entry=entry,
             project_key=payload.repository,
             git_user_email=payload.user_email,
             git_user_name=payload.user_name,
@@ -223,7 +243,7 @@ class IngestionService:
         payload_hash: str,
         now: datetime,
         workflow_kind: str,
-    ) -> None:
+    ) -> str | None:
         existing_started = _milliseconds(workflow.started_at)
         mismatches = []
         if workflow.project_key != payload.repository:
@@ -239,6 +259,23 @@ class IngestionService:
                 400,
                 "INVALID_REQUEST",
                 "workflow-consistent fields differ: " + ", ".join(mismatches),
+            )
+        if workflow.entry is None and payload.entry is not None:
+            workflow.entry = payload.entry
+        elif (
+            workflow.entry is not None
+            and payload.entry is not None
+            and workflow.entry != payload.entry
+        ):
+            logger.warning(
+                "工作流入口与已保存入口不一致，保留首次入口并接受本次上报",
+                extra={
+                    "event": "telemetry.entry_conflict",
+                    "workflow_id": str(payload.workflow_id),
+                    "stored_entry": workflow.entry,
+                    "incoming_entry": payload.entry,
+                    "step_type": payload.data.step_type,
+                },
             )
         incoming_updated = _datetime(payload.updated_at)
         current_updated = (
@@ -263,15 +300,38 @@ class IngestionService:
                 workflow.completed_at = completed
             workflow.status = "completed"
         workflow.server_updated_at = now
+        return workflow.entry
+
+    @staticmethod
+    def _new_workflow_entry(payload: TelemetrySyncRequest) -> str | None:
+        inferred = ENTRY_BY_STEP_TYPE.get(payload.data.step_type)
+        if payload.entry is not None and inferred is not None and payload.entry != inferred:
+            logger.warning(
+                "显式工作流入口与首步类型不一致，以显式入口为准",
+                extra={
+                    "event": "telemetry.entry_conflict",
+                    "workflow_id": str(payload.workflow_id),
+                    "stored_entry": None,
+                    "incoming_entry": payload.entry,
+                    "step_type": payload.data.step_type,
+                },
+            )
+        return payload.entry or inferred
 
     @staticmethod
     def _create_message(
-        payload: TelemetrySyncRequest, payload_hash: str, now: datetime, workflow_kind: str
+        payload: TelemetrySyncRequest,
+        payload_hash: str,
+        now: datetime,
+        workflow_kind: str,
+        *,
+        entry: str | None,
     ) -> TelemetryMessage:
         file = payload.data.file
         return TelemetryMessage(
             id=payload.message_id,
             workflow_kind=workflow_kind,
+            entry=entry,
             workflow_run_id=payload.workflow_id,
             aaw_version=payload.aaw_version,
             user_email=payload.user_email,

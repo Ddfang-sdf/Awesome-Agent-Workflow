@@ -81,6 +81,7 @@ class StepMessageData(StrictModel):
 class TelemetrySyncRequest(StrictModel):
     message_id: uuid.UUID
     workflow_id: uuid.UUID
+    entry: Literal["ar", "sr"] | None = None
     aaw_version: str = Field(min_length=1, max_length=64)
     user_email: str = Field(min_length=1, max_length=320)
     user_name: str

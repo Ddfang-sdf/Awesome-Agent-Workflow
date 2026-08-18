@@ -36,6 +36,7 @@ class TelemetryTests(unittest.TestCase):
     def _workflow(self):
         return SimpleNamespace(
             sr="SR-TIMESTAMPS",
+            entry="ar",
             vars={},
             status="in_progress",
             created_at="2026-07-15T01:00:00Z",
@@ -180,6 +181,7 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(1784077323000, message["data"]["started_at"])
         self.assertEqual(1784077623000, message["data"]["completed_at"])
         self.assertIsNone(message["data"]["file"])
+        self.assertEqual("ar", message["entry"])
 
     def test_start_step_message_allows_null_completed_at(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

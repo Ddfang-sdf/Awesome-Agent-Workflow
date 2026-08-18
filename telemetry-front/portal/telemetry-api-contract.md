@@ -200,6 +200,7 @@ Content-Type: application/json
     "git_user_name": "张三",
     "sr": "SR-123",
     "ar": "AR-456",
+    "entry": "ar",
     "aaw_version": "0.2.0",
     "status": "in_progress",
     "started_at": "2026-07-13T09:00:00Z",
@@ -215,6 +216,7 @@ Content-Type: application/json
 | `git_user_name` | string | 是 | 否 | 长度 1～200 |
 | `sr` | string | 是 | 否 | 长度 1～128 |
 | `ar` | string | 否 | 是 | 长度 1～128 |
+| `entry` | string | 否 | 是 | `ar`、`sr`；缺失时由服务端按首步推断 |
 | `aaw_version` | Version | 是 | 否 | 统一发布版本 |
 | `status` | string | 是 | 否 | `in_progress`、`completed` |
 | `started_at` | datetime | 是 | 否 | 工作流开始时间 |
@@ -564,6 +566,7 @@ Authorization: Bearer <admin-token>
   "data": {
     "period": {
       "workflow_runs": 320,
+      "workflow_runs_by_entry": {"ar": 128, "sr": 192},
       "completed_workflows": 240,
       "workflow_completion_rate": 0.75,
       "active_users": 46,
@@ -707,6 +710,7 @@ Authorization: Bearer <admin-token>
       "git_user_name": "张三",
       "sr": "SR-123",
       "ar": "AR-456",
+      "workflow_type": "ar",
       "aaw_version": "0.2.0",
       "status": "in_progress",
       "activity_state": "active",
@@ -739,6 +743,7 @@ Authorization: Bearer <admin-token>
       "git_user_name": "张三",
       "sr": "SR-123",
       "ar": "AR-456",
+      "workflow_type": "ar",
       "aaw_version": "0.2.0",
       "status": "completed",
       "started_at": "2026-07-13T09:00:00Z",

@@ -181,6 +181,40 @@ def test_workflow_started_at_is_consistent(client):
     assert "started_at" in response.json()["message"]
 
 
+def test_unknown_entry_can_be_filled_by_a_later_explicit_entry(client):
+    first = message(
+        workflow_completed=False,
+        step_type="legacy-step",
+        with_file=False,
+    )
+    second = message(
+        message_id=SECOND_MESSAGE_ID,
+        entry="ar",
+        step_type="review",
+        with_file=False,
+    )
+    assert sync(client, first).status_code == 200
+    assert sync(client, second).status_code == 200
+
+    detail = client.get(f"/api/v1/workflows/{WORKFLOW_ID}").json()
+    assert detail["workflow"]["workflow_type"] == "ar"
+
+
+def test_conflicting_later_entry_is_accepted_but_first_entry_wins(client):
+    first = message(entry="ar", step_type="ar-init", with_file=False)
+    second = message(
+        message_id=SECOND_MESSAGE_ID,
+        entry="sr",
+        step_type="review",
+        with_file=False,
+    )
+    assert sync(client, first).status_code == 200
+    assert sync(client, second).status_code == 200
+
+    detail = client.get(f"/api/v1/workflows/{WORKFLOW_ID}").json()
+    assert detail["workflow"]["workflow_type"] == "ar"
+
+
 def test_same_workflow_preserves_nonzero_milliseconds(client):
     started_at = STARTED_AT + 123
     first = message(

@@ -248,6 +248,9 @@ class TelemetryStore:
             file = None
         message_data = {
             "workflow_id": current_workflow_id,
+            "entry": getattr(wf, "entry", None)
+            if getattr(wf, "entry", None) in {"ar", "sr"}
+            else None,
             "aaw_version": aaw_version(),
             "user_email": email,
             "user_name": name,

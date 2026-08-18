@@ -197,6 +197,10 @@ class QueryService:
         return {
             "period": {
                 "workflow_runs": len(workflows),
+                "workflow_runs_by_entry": {
+                    "ar": sum(row.entry == "ar" for row in workflows),
+                    "sr": sum(row.entry == "sr" for row in workflows),
+                },
                 "completed_workflows": completed,
                 "workflow_completion_rate": completed / len(workflows) if workflows else None,
                 "active_users": len({row.user_email for row in messages}),
@@ -446,6 +450,7 @@ class QueryService:
             ],
             "sr": workflow.sr,
             "ar": latest_message.ar if latest_message else None,
+            "workflow_type": workflow.entry if workflow.entry in {"ar", "sr"} else "unknown",
             "git_user_email": latest_message.user_email if latest_message else None,
             "git_user_name": latest_message.user_name if latest_message else None,
             "aaw_version": workflow.aaw_version,

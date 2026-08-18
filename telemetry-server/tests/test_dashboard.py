@@ -51,6 +51,7 @@ def test_overview_and_filter_options_use_message_dimensions(client):
 
     period = client.get("/api/v1/dashboard/overview").json()["period"]
     assert period["workflow_runs"] == 1
+    assert period["workflow_runs_by_entry"] == {"ar": 0, "sr": 0}
     assert period["active_users"] == 2
     assert period["steps"] == 2
     assert period["dev_effective_lines"] == 2
@@ -98,11 +99,48 @@ def test_workflow_list_and_detail_include_participants_steps_and_milliseconds(cl
     assert isinstance(row["started_at"], int)
     assert len(row["participants"]) == 2
     assert row["furthest_step_type"] == "review"
+    assert row["workflow_type"] == "unknown"
     assert "project_display_name" not in row
 
     detail = client.get(f"/api/v1/workflows/{WORKFLOW_ID}").json()
     assert [row["step_type"] for row in detail["steps"]] == ["task-dev", "review"]
     assert detail["steps"][0]["file_status"] == "confirmed"
+    assert detail["workflow"]["workflow_type"] == "unknown"
+
+
+def test_overview_and_workflow_rows_report_entry_type(client):
+    ar_workflow = uuid.UUID("66666666-6666-4666-8666-666666666666")
+    sr_workflow = uuid.UUID("77777777-7777-4777-8777-777777777777")
+    ar_payload = message(
+        message_id=uuid.UUID("66666666-6666-4666-8666-666666666661"),
+        workflow_id=ar_workflow,
+        entry="ar",
+        step_type="ar-init",
+        with_file=False,
+    )
+    sr_payload = message(
+        message_id=uuid.UUID("77777777-7777-4777-8777-777777777771"),
+        workflow_id=sr_workflow,
+        entry="sr",
+        ar=None,
+        step_type="sr-init",
+        with_file=False,
+    )
+    assert sync(client, ar_payload).status_code == 200
+    assert sync(client, sr_payload).status_code == 200
+
+    period = client.get("/api/v1/dashboard/overview").json()["period"]
+    assert period["workflow_runs_by_entry"] == {"ar": 1, "sr": 1}
+
+    rows = client.get("/api/v1/dashboard/workflows").json()["items"]
+    assert {row["workflow_type"] for row in rows} == {"ar", "sr"}
+
+
+def test_missing_entry_is_inferred_from_first_step(client):
+    payload = message(step_type="ar-init", with_file=False)
+    assert sync(client, payload).status_code == 200
+    detail = client.get(f"/api/v1/workflows/{WORKFLOW_ID}").json()
+    assert detail["workflow"]["workflow_type"] == "ar"
 
 
 def test_attribution_list_supports_filters_and_pagination(client):

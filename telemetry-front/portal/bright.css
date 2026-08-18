@@ -912,6 +912,9 @@ body > main.stage { z-index: 0; }
 .badge--active   { color: var(--grass);     background: rgba(18, 196, 107, .12); }
 .badge--stalled  { color: var(--tangerine); background: rgba(255, 122, 26, .13); }
 .badge--completed{ color: var(--iris);      background: rgba(75, 63, 228, .11); }
+.badge--entry-ar { color: var(--iris);      background: rgba(75, 63, 228, .11); }
+.badge--entry-sr { color: var(--grass);     background: rgba(18, 196, 107, .12); }
+.badge--entry-unknown { color: var(--ink-mute); background: rgba(154, 160, 172, .14); }
 .step-chip {
   font-family: var(--mono);
   font-size: 11.5px;
@@ -924,16 +927,19 @@ body > main.stage { z-index: 0; }
 }
 .th-time { text-align: left !important; }
 .wf-time { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); text-align: left; }
+.ledger--wf tbody td:nth-child(2),
+.ledger--wf tbody td.wf-time { text-align: left; }
 
 /* column sizing — keep numeric columns tight so headers sit over their data,
-   let the three text columns share the remaining width. */
+   let the text columns share the remaining width. */
 .ledger--wf { table-layout: fixed; }
-.ledger--wf th:nth-child(1), .ledger--wf td:nth-child(1) { width: 22%; }
-.ledger--wf th:nth-child(2), .ledger--wf td:nth-child(2) { width: 20%; }
-.ledger--wf th:nth-child(3), .ledger--wf td:nth-child(3) { width: 18%; }
-.ledger--wf th:nth-child(4), .ledger--wf td:nth-child(4),
-.ledger--wf th:nth-child(5), .ledger--wf td:nth-child(5) { width: 11%; }
-.ledger--wf th:nth-child(6), .ledger--wf td:nth-child(6) { width: 18%; }
+.ledger--wf th:nth-child(1), .ledger--wf td:nth-child(1) { width: 20%; }
+.ledger--wf th:nth-child(2), .ledger--wf td:nth-child(2) { width: 12%; }
+.ledger--wf th:nth-child(3), .ledger--wf td:nth-child(3) { width: 17%; }
+.ledger--wf th:nth-child(4), .ledger--wf td:nth-child(4) { width: 15%; }
+.ledger--wf th:nth-child(5), .ledger--wf td:nth-child(5),
+.ledger--wf th:nth-child(6), .ledger--wf td:nth-child(6) { width: 10%; }
+.ledger--wf th:nth-child(7), .ledger--wf td:nth-child(7) { width: 16%; }
 .ledger--wf .wf-id span,
 .ledger--wf .wf-who span,
 .ledger--wf .step-chip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

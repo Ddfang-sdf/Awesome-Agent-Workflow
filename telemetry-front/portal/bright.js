@@ -474,6 +474,8 @@
         stalledWorkflows: cur.stalled_workflows,
         activityThresholdHours: cur.activity_threshold_hours,
         workflowRuns: p.workflow_runs,
+        arEntryWorkflows: p.workflow_runs_by_entry?.ar ?? 0,
+        srEntryWorkflows: p.workflow_runs_by_entry?.sr ?? 0,
         completedWorkflows: p.completed_workflows,
         workflowCompletionRate: p.workflow_completion_rate,
         devRuns: p.dev_runs,
@@ -552,6 +554,7 @@
             gitUserName: r.git_user_name,
             sr: r.sr,
             ar: r.ar,
+            workflowType: r.workflow_type,
             status: r.status,
             activityState: r.activity_state,
             furthestStepType: r.furthest_step_type,
@@ -1139,6 +1142,8 @@
     set("#stPending", fmtFull(rt.pendingAttributionDevRuns ?? 0));
     set("#stComplete", fmtPct(rt.workflowCompletionRate ?? 0));
     set("#stCompleteSub", `${fmtFull(rt.completedWorkflows ?? 0)} / ${fmtFull(rt.workflowRuns ?? 0)} 已完成`);
+    set("#stArEntry", fmtFull(rt.arEntryWorkflows ?? 0));
+    set("#stSrEntry", fmtFull(rt.srEntryWorkflows ?? 0));
 
     // 仅在停滞>0 时点亮琥珀告警——平时保持安静。
     const stone = $("#stStalledStone");
@@ -1267,6 +1272,16 @@
     completed: { label: "已完成",   heading: "已完成的工作流", badge: "badge--completed" },
   };
 
+  const WF_ENTRY_META = {
+    ar:      { label: "AR入口", badge: "badge--entry-ar" },
+    sr:      { label: "SR入口", badge: "badge--entry-sr" },
+    unknown: { label: "未知",   badge: "badge--entry-unknown" },
+  };
+
+  function workflowEntryMeta(value) {
+    return WF_ENTRY_META[value] || WF_ENTRY_META.unknown;
+  }
+
   function workflowStateMeta(row) {
     const stateFromBackend = row.activityState
       || (row.status === "completed" ? "completed" : null)
@@ -1298,11 +1313,12 @@
       const msg = state.workflowsFailed
         ? `工作流数据加载失败，<button type="button" class="retry-link" data-retry="workflows">重试</button>`
         : `当前筛选下暂无${meta.label}工作流`;
-      body.innerHTML = `<tr class="empty-row"><td colspan="6">${msg}</td></tr>`;
+      body.innerHTML = `<tr class="empty-row"><td colspan="7">${msg}</td></tr>`;
       return;
     }
     items.forEach((r) => {
       const rowMeta = workflowStateMeta(r);
+      const entryMeta = workflowEntryMeta(r.workflowType);
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td class="td-name">
@@ -1311,6 +1327,7 @@
             <span>${r.ar ? esc(r.ar) + " · " : ""}${esc(r.workflowRunId)}</span>
           </span>
         </td>
+        <td><span class="badge ${entryMeta.badge}">${entryMeta.label}</span></td>
         <td class="td-name">
           <span class="wf-who">
             <strong>${esc(r.gitUserName || "—")}</strong>

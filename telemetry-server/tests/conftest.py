@@ -174,6 +174,7 @@ def message(
     repository: str = "team/example-service",
     sr: str = "SR-1001",
     ar: str | None = "AR-2001",
+    entry: str | None = None,
     step_type: str = "task-dev",
     status: str = "done",
     with_file: bool | None = None,
@@ -195,6 +196,7 @@ def message(
     payload = {
         "message_id": str(message_id),
         "workflow_id": str(workflow_id),
+        "entry": entry,
         "aaw_version": "0.1.0",
         "user_email": user_email,
         "user_name": user_name,

@@ -250,11 +250,16 @@
       const devRuns = round(totalUsage * (1.2 + seed(timeRange + "dr") * 0.4));
       const activeWorkflows = round(6 + seed(timeRange + comps.length + "aw") * 26);
       const stalledWorkflows = round(seed(timeRange + comps.length + "sw") * 9);
+      const arEntryWorkflows = totalUsage
+        ? round(totalUsage * (0.24 + seed(timeRange + "ar-entry") * 0.18))
+        : 0;
       const realtime = {
         activeWorkflows,
         stalledWorkflows,
         activityThresholdHours: 24,
         workflowRuns: summary.usageCount,
+        arEntryWorkflows,
+        srEntryWorkflows: Math.max(0, totalUsage - arEntryWorkflows),
         completedWorkflows,
         workflowCompletionRate: rate(completedWorkflows, summary.usageCount),
         devRuns,
@@ -348,6 +353,7 @@
           gitUserName: p.name,
           sr: `SR-${1000 + round(s * 8000)}`,
           ar: `AR-${100 + round(seed("ar" + i) * 900)}`,
+          workflowType: i % 5 === 0 ? "unknown" : (i % 2 ? "ar" : "sr"),
           status: isDone ? "completed" : "in_progress",
           activityState: wantState,
           furthestStepType: step.key,
