@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
-from ..config import ProjectRegistry
+from ..config import UNASSIGNED_COMPONENT_ID, UNASSIGNED_COMPONENT_NAME, ProjectRegistry
 from ..errors import ApiError
 from ..models import DevRun, TelemetryMessage, WorkflowRun
 
@@ -116,6 +116,28 @@ def _bucket_date(value: date, granularity: str) -> date:
     return value if granularity == "day" else value - timedelta(days=value.weekday())
 
 
+def _testing_adoption_fields(filters: Filters, attributions: list[Any]) -> dict[str, Any]:
+    if filters.workflow_kind != "testing":
+        return {}
+    if any(row.mr_commit_lines is None for row in attributions):
+        mr_commit_lines = None
+    else:
+        mr_commit_lines = sum(row.mr_commit_lines for row in attributions)
+    return {
+        "mr_commit_lines": mr_commit_lines,
+        "mr_adoption_rate_80": (
+            sum(row.attributed_lines_80 for row in attributions) / mr_commit_lines
+            if mr_commit_lines
+            else None
+        ),
+        "mr_adoption_rate_90": (
+            sum(row.attributed_lines_90 for row in attributions) / mr_commit_lines
+            if mr_commit_lines
+            else None
+        ),
+    }
+
+
 class QueryService:
     def __init__(self, session: Session, projects: ProjectRegistry):
         self.session = session
@@ -197,6 +219,10 @@ class QueryService:
         return {
             "period": {
                 "workflow_runs": len(workflows),
+                "workflow_runs_by_entry": {
+                    "ar": sum(row.entry == "ar" for row in workflows),
+                    "sr": sum(row.entry == "sr" for row in workflows),
+                },
                 "completed_workflows": completed,
                 "workflow_completion_rate": completed / len(workflows) if workflows else None,
                 "active_users": len({row.user_email for row in messages}),
@@ -211,6 +237,7 @@ class QueryService:
                 "attributed_lines_90": attributed_90,
                 "attribution_rate_80": attributed_80 / effective_lines if effective_lines else None,
                 "attribution_rate_90": attributed_90 / effective_lines if effective_lines else None,
+                **_testing_adoption_fields(filters, attributions),
             },
             "snapshot": {
                 "active_workflows": sum(
@@ -235,6 +262,8 @@ class QueryService:
                 "dev_effective_lines": 0,
                 "attributed_lines_80": 0,
                 "attributed_lines_90": 0,
+                "mr_commit_lines": 0,
+                "mr_commit_lines_complete": True,
             }
         )
         for workflow in workflows:
@@ -250,12 +279,47 @@ class QueryService:
             if dev.attribution:
                 buckets[key]["attributed_lines_80"] += dev.attribution.attributed_lines_80
                 buckets[key]["attributed_lines_90"] += dev.attribution.attributed_lines_90
+                if filters.workflow_kind == "testing":
+                    if dev.attribution.mr_commit_lines is None:
+                        buckets[key]["mr_commit_lines_complete"] = False
+                    else:
+                        buckets[key]["mr_commit_lines"] += dev.attribution.mr_commit_lines
         cursor = _bucket_date(filters.from_date, granularity)
         end = _bucket_date(filters.to_date, granularity)
         increment = timedelta(days=1 if granularity == "day" else 7)
         points = []
         while cursor <= end:
-            points.append({"date": cursor.isoformat(), **buckets[cursor]})
+            bucket = buckets[cursor]
+            point = {
+                "date": cursor.isoformat(),
+                **{
+                    key: value
+                    for key, value in bucket.items()
+                    if not key.startswith("mr_commit_lines")
+                },
+            }
+            if filters.workflow_kind == "testing":
+                mr_commit_lines = (
+                    bucket["mr_commit_lines"]
+                    if bucket["mr_commit_lines_complete"]
+                    else None
+                )
+                point.update(
+                    {
+                        "mr_commit_lines": mr_commit_lines,
+                        "mr_adoption_rate_80": (
+                            bucket["attributed_lines_80"] / mr_commit_lines
+                            if mr_commit_lines
+                            else None
+                        ),
+                        "mr_adoption_rate_90": (
+                            bucket["attributed_lines_90"] / mr_commit_lines
+                            if mr_commit_lines
+                            else None
+                        ),
+                    }
+                )
+            points.append(point)
             cursor += increment
         return {"granularity": granularity, "points": points}
 
@@ -264,6 +328,73 @@ class QueryService:
 
     def users_summary(self, filters: Filters, page: int, page_size: int) -> dict[str, Any]:
         return self._paginate(self._summary_rows(filters, "user"), page, page_size)
+
+    def components_summary(self, filters: Filters) -> dict[str, Any]:
+        workflows = self._workflows(filters)
+        messages = self._messages([row.id for row in workflows], filters)
+        dev_by_id = {row.id: row for row in self._devs([row.id for row in messages])}
+        per_repo: dict[str, list[DevRun]] = defaultdict(list)
+        for message in messages:
+            devs = per_repo[message.repository]
+            if message.id in dev_by_id:
+                devs.append(dev_by_id[message.id])
+
+        # `used_aaw` spans the whole history, so it deliberately ignores every filter
+        # except the workflow kind that separates the aaw and testing dashboards.
+        used_repos = set(
+            self.session.scalars(
+                select(TelemetryMessage.repository)
+                .where(TelemetryMessage.workflow_kind == filters.workflow_kind)
+                .distinct()
+            ).all()
+        )
+
+        def aggregate(repo_keys: tuple[str, ...] | list[str]) -> dict[str, Any]:
+            devs = [dev for repo_key in repo_keys for dev in per_repo.get(repo_key, [])]
+            effective = sum(
+                row.code_statistics["total_effective_lines"] for row in devs if row.code_statistics
+            )
+            attributed_80 = sum(
+                row.attribution.attributed_lines_80 for row in devs if row.attribution
+            )
+            attributions = [row.attribution for row in devs if row.attribution]
+            return {
+                "used_aaw": any(repo_key in used_repos for repo_key in repo_keys),
+                "effective_lines": effective,
+                "attribution_rate_80": attributed_80 / effective if effective else None,
+                "repos": list(repo_keys),
+                **_testing_adoption_fields(filters, attributions),
+            }
+
+        covered: set[str] = set()
+        items = []
+        for view in self.projects.components():
+            covered.update(view.repo_keys)
+            items.append(
+                {
+                    "component_id": view.component_id,
+                    "name": view.name,
+                    "se": view.se,
+                    **aggregate(view.repo_keys),
+                }
+            )
+
+        orphan_keys = sorted((set(per_repo) | used_repos) - covered)
+        if orphan_keys:
+            items.append(
+                {
+                    "component_id": UNASSIGNED_COMPONENT_ID,
+                    "name": UNASSIGNED_COMPONENT_NAME,
+                    "se": None,
+                    **aggregate(orphan_keys),
+                }
+            )
+        return {
+            "items": items,
+            "total_components": len(items),
+            "used_components": sum(row["used_aaw"] for row in items),
+            "unassigned_component_id": UNASSIGNED_COMPONENT_ID,
+        }
 
     def _summary_rows(self, filters: Filters, group: str) -> list[dict[str, Any]]:
         workflows = self._workflows(filters)
@@ -293,6 +424,7 @@ class QueryService:
                 "attributed_lines_90": attributed_90,
                 "attribution_rate_80": attributed_80 / effective if effective else None,
                 "attribution_rate_90": attributed_90 / effective if effective else None,
+                **_testing_adoption_fields(filters, attrs),
             }
             if group == "repository":
                 base.update(self._repository_display(key))
@@ -381,6 +513,7 @@ class QueryService:
             ],
             "sr": workflow.sr,
             "ar": latest_message.ar if latest_message else None,
+            "workflow_type": workflow.entry if workflow.entry in {"ar", "sr"} else "unknown",
             "git_user_email": latest_message.user_email if latest_message else None,
             "git_user_name": latest_message.user_name if latest_message else None,
             "aaw_version": workflow.aaw_version,
@@ -505,6 +638,7 @@ class QueryService:
                         if attribution.dev_effective_lines
                         else None
                     ),
+                    **_testing_adoption_fields(filters, [attribution]),
                 }
             )
             items.append(item)

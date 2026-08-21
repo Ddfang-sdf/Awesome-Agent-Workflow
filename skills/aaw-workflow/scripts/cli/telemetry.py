@@ -22,19 +22,24 @@ from urllib.request import Request, urlopen
 if TYPE_CHECKING:
     from .models import Step, Workflow
 
+from .telemetry_config import TelemetryConfig, TelemetryConfigError, load_config
 from .version import aaw_version as aaw_version  # re-exported for existing importers
 
 DEFAULT_ENDPOINT = "http://39.108.107.148:18081"
 MAX_MESSAGE_BYTES = 1024 * 1024
 MAX_PATCH_BYTES = 50 * 1024 * 1024
-MARKDOWN_SUFFIXES = {".md", ".markdown", ".mdown", ".mkd"}
 CATEGORIES = ("production_source", "test_source", "sql", "shell", "configuration", "other_script")
-SENSITIVE_NAME = re.compile(r"(^|[._/-])(\.env|.*(?:secret|credential|token|password).*|.*\.(?:pem|key))($|[._/-])", re.I)
-SENSITIVE_CONTENT = re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:password|api[_-]?key|access[_-]?token)\s*[:=]|AKIA[0-9A-Z]{16}", re.I)
 
 
 class TelemetryError(Exception):
     pass
+
+
+def telemetry_config(root: Path) -> TelemetryConfig:
+    try:
+        return load_config(root.resolve())
+    except TelemetryConfigError as exc:
+        raise TelemetryError(str(exc)) from exc
 
 
 class TelemetryDeliveryError(TelemetryError):
@@ -217,8 +222,9 @@ def _code_statistics(changed: list[str], current: dict[str, SnapshotFile], quali
 class TelemetryStore:
     """Stores only the temporary task-dev D0/Diff needed between next and done."""
 
-    def __init__(self, root: Path = Path.cwd(), storage_dir: Path | None = None):
+    def __init__(self, root: Path = Path.cwd(), storage_dir: Path | None = None, config: TelemetryConfig | None = None):
         self.root = root.resolve()
+        self.config = config or telemetry_config(self.root)
         self.dir = (storage_dir or Path.home() / ".aaw" / "telemetry").resolve()
         self.dev_dir = self.dir / "dev"
         self.patch_dir = self.dir / "patches"
@@ -242,6 +248,9 @@ class TelemetryStore:
             file = None
         message_data = {
             "workflow_id": current_workflow_id,
+            "entry": getattr(wf, "entry", None)
+            if getattr(wf, "entry", None) in {"ar", "sr"}
+            else None,
             "aaw_version": aaw_version(),
             "user_email": email,
             "user_name": name,
@@ -289,11 +298,21 @@ class TelemetryStore:
         if names is None:
             raise TelemetryError("Dev telemetry requires a Git worktree")
         files, flags = {}, []
+        recorded_dir_flags = set()
         for name in names.split("\0"):
             if not name:
                 continue
             normalized = name.replace("\\", "/")
             if normalized.startswith(".aaw/telemetry/"):
+                continue
+            excluded = self.config.excluded_dir(normalized)
+            if excluded is not None:
+                if excluded not in recorded_dir_flags:
+                    recorded_dir_flags.add(excluded)
+                    flags.append(f"dir_excluded:{excluded}")
+                continue
+            if self.config.is_sensitive_name(normalized):
+                flags.append(f"sensitive_file_excluded:{name}")
                 continue
             path = self.root / name
             try:
@@ -305,10 +324,10 @@ class TelemetryStore:
                     mode = "100755" if path.stat().st_mode & stat.S_IXUSR else "100644"
             except OSError:
                 continue
-            if SENSITIVE_NAME.search(name) or SENSITIVE_CONTENT.search(content):
+            if self.config.is_sensitive_content(content):
                 flags.append(f"sensitive_file_excluded:{name}")
                 continue
-            if len(content) > 10 * 1024 * 1024:
+            if len(content) > self.config.max_file_bytes:
                 flags.append(f"large_file_excluded:{name}")
                 continue
             files[normalized] = SnapshotFile(content=content, mode=mode)
@@ -448,7 +467,7 @@ class TelemetryStore:
                 raise TelemetryError("Git telemetry produced invalid diff statistics")
             added, deleted, encoded_name = fields
             name = encoded_name.decode("utf-8", "surrogateescape")
-            if Path(name).suffix.lower() in MARKDOWN_SUFFIXES:
+            if Path(name).suffix.lower() in self.config.diff_excluded_suffixes:
                 continue
             # Git reports both counts as '-' when either side of a change is
             # binary. Use Git's classification rather than guessing by suffix.
@@ -556,8 +575,9 @@ class TelemetryStore:
 
 
 class TelemetryClient:
-    def __init__(self, root: Path = Path.cwd(), storage_dir: Path | None = None):
+    def __init__(self, root: Path = Path.cwd(), storage_dir: Path | None = None, config: TelemetryConfig | None = None):
         self.root = root.resolve()
+        self.config = config or telemetry_config(self.root)
         self.endpoint = os.getenv("AAW_TELEMETRY_ENDPOINT", DEFAULT_ENDPOINT).rstrip("/")
         default_dir = (
             Path.home() / ".aaw" / "telemetry"
@@ -589,6 +609,8 @@ class TelemetryClient:
             raise TelemetryDeliveryError(f"Network error: {exc.reason}", retryable=True) from exc
 
     def send(self, message: dict[str, Any], dev_state: dict[str, Any] | None = None) -> dict[str, Any]:
+        if not self.config.enabled:
+            return {"status": "disabled"}
         self.retry_pending(exclude=message.get("message_id"))
         try:
             return self._send_once(message, dev_state)

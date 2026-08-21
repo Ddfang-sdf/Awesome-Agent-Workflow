@@ -22,6 +22,7 @@ from .models import (
     normalize_skill,
     parse_data,
 )
+from .task_dev import TaskDevManager
 
 
 _DEFINITIONS_DIR = Path(__file__).parent / "definitions"
@@ -386,13 +387,64 @@ def _eval_when(expr: str | None, context: dict[str, Any]) -> bool:
 def _validate_items(items: list[Any], validation: dict[str, Any] | None) -> None:
     if not validation:
         return
+    field = validation.get("field")
+    values: list[Any] = []
+    for item in items:
+        if field:
+            if not isinstance(item, dict) or field not in item:
+                raise DataError(f"数组项缺少字段: {field}; offending item: {item}")
+            value = item[field]
+        else:
+            value = item
+        values.append(value)
+
+        if validation.get("required") and (value is None or value == ""):
+            raise DataError(f"数组项字段 {field or 'item'} 不能为空; offending item: {item}")
+        expected_type = validation.get("type")
+        if expected_type == "string" and not isinstance(value, str):
+            raise DataError(f"数组项字段 {field or 'item'} 必须是 string; offending item: {item}")
+        max_length = validation.get("max_length")
+        if max_length is not None and len(str(value)) > int(max_length):
+            message = validation.get("message") or f"数组项长度不能超过 {max_length}"
+            raise DataError(f"{message}; offending item: {item}")
+        if validation.get("path_component"):
+            text = str(value)
+            reserved = re.fullmatch(
+                r"(?i:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?",
+                text,
+            )
+            if (
+                text in {".", ".."}
+                or text != text.strip()
+                or text.endswith(".")
+                or re.search(r'[<>:"/\\|?*\x00-\x1f]', text)
+                or reserved
+            ):
+                message = validation.get("message") or "数组项不是合法的文件名或目录名"
+                raise DataError(f"{message}; offending item: {item}")
+
     reject_pattern = validation.get("reject_pattern")
     if reject_pattern:
         pattern = re.compile(str(reject_pattern))
-        for item in items:
-            if pattern.search(str(item)):
+        for item, value in zip(items, values):
+            if pattern.search(str(value)):
                 message = validation.get("message") or f"数组项不允许匹配: {reject_pattern}"
                 raise DataError(f"{message} offending item: {item}")
+    match_pattern = validation.get("match_pattern")
+    if match_pattern:
+        pattern = re.compile(str(match_pattern))
+        for item, value in zip(items, values):
+            if not pattern.search(str(value)):
+                message = validation.get("message") or f"数组项必须匹配: {match_pattern}"
+                raise DataError(f"{message} offending item: {item}")
+    if validation.get("unique"):
+        seen: set[str] = set()
+        for item, value in zip(items, values):
+            key = str(value).casefold()
+            if key in seen:
+                message = validation.get("message") or "数组项必须唯一"
+                raise DataError(f"{message}; duplicate item: {item}")
+            seen.add(key)
 
 
 def _edge_rejections(edge: dict[str, Any]) -> list[dict[str, Any]]:
@@ -423,8 +475,36 @@ def _render_io_items(sdd_dir: Path, items: list[dict[str, Any]], vars_: dict[str
         out = _expand_obj(item, vars_)
         if "path" in out:
             out["path"] = _normalize_stored_path(out["path"])
+            if vars_.get("详设路径版本") == "v1":
+                out["path"] = _legacy_module_artifact_path(out["path"], vars_)
         rendered.append(out)
     return rendered
+
+
+def _legacy_module_artifact_path(path: str, vars_: dict[str, Any]) -> str:
+    """Render v2 module artifact paths as the legacy flat layout.
+
+    Historical workflow.yaml files contain already-expanded v1 paths. This
+    adapter applies only to successors created after an upgrade, keeping the
+    complete historical workflow on one path contract without moving files.
+    """
+    sr = str(vars_.get("SR") or "")
+    ar = str(vars_.get("AR") or "")
+    group = str(vars_.get("模块组名") or "")
+    requirement = str(vars_.get("需求短名") or "")
+    if not all((sr, ar, group, requirement)):
+        return path
+    root = f".sdd/{sr}/{ar}"
+    module_root = f"{root}/{group}"
+    prefix = f"{root}/{ar}-{requirement}-{group}"
+    mapping = {
+        f"{module_root}/.context/详细设计上下文.md": f"{prefix}模块详细设计说明书.context.md",
+        f"{module_root}/模块详细设计说明书.md": f"{prefix}模块详细设计说明书.md",
+        f"{module_root}/模块测试用例设计.md": f"{prefix}模块测试用例设计.md",
+        f"{module_root}/.context/模块设计门禁结果.md": f"{prefix}模块设计门禁结果.md",
+        f"{module_root}/tasks-overview.md": f"{root}/{group}_tasks/overview.md",
+    }
+    return mapping.get(path, path)
 
 
 def _make_step(template: dict[str, Any], step_id: int, vars_: dict[str, Any], sdd_dir: Path) -> Step:
@@ -475,6 +555,7 @@ class WorkflowManager:
         definition = _load_definition(sdd_dir)
         self.entrypoints: dict[str, dict[str, Any]] = definition["entrypoints"]
         self.templates: dict[str, dict[str, Any]] = definition["templates"]
+        self.task_dev = TaskDevManager(sdd_dir)
 
     # ---- bootstrap ----
 
@@ -522,6 +603,7 @@ class WorkflowManager:
 
             wf_vars = dict(vars_)
             wf_vars["SR"] = sr
+            wf_vars["详设路径版本"] = "v2"
             step1 = _make_step(self.templates[start_type], 1, wf_vars, self.sdd_dir)
             wf = Workflow(
                 sr=sr,
@@ -652,6 +734,27 @@ class WorkflowManager:
         requires_data = self._step_requires_data(step)
         data_file = self._data_file(wf, step) if requires_data else None
         done_argv = self._done_argv(wf, step, data_file)
+
+        if step.type == "task-dev" and step.execution_status == "running":
+            self.task_dev._advance_from_report(wf, step)
+            work_order = {
+                "id": step.id,
+                "type": step.type,
+                "name": step.name,
+                "execution": step.execution,
+                "session": step.session,
+                "execution_status": step.execution_status,
+                "attempt": step.attempt,
+                "started_at": step.started_at,
+                "skill": step.skill,
+                "input": self._annotate_io(step.input),
+                "task_dev": self.task_dev.guidance(wf, step, done_argv),
+            }
+            missing_inputs = self.check_inputs(step)["missing_required"]
+            if missing_inputs:
+                work_order["missing_required_inputs"] = missing_inputs
+            return work_order
+
         done = " ".join(_quote_arg(arg) for arg in done_argv)
 
         legacy_done = f"aaw done --sr {wf.sr} {step.id}"
@@ -659,7 +762,7 @@ class WorkflowManager:
             legacy_done += " --data '<JSON>'"
         legacy_done += " --json"
 
-        return {
+        work_order = {
             "id": step.id,
             "type": step.type,
             "name": step.name,
@@ -689,6 +792,7 @@ class WorkflowManager:
                 "legacy_done": legacy_done,
             },
         }
+        return work_order
 
     def _user_confirm_summary(self, step: Step) -> Any:
         edge = self.templates[step.type]["edge"]
@@ -760,6 +864,11 @@ class WorkflowManager:
         return " ".join(_quote_arg(arg) for arg in argv)
 
     def _step_requires_data(self, step: Step) -> bool:
+        # task-dev completion is derived from its persisted phase state. Keep
+        # ignoring the legacy schema embedded in workflows created before the
+        # final completion payload was removed.
+        if step.type == "task-dev":
+            return False
         edge = self.templates[step.type]["edge"]
         return edge.get("kind") in {"choice", "foreach"} or bool(step.data_schema)
 
@@ -878,6 +987,10 @@ class WorkflowManager:
         self._ensure_required_inputs(step)
         self._ensure_required_deliverables(step)
 
+        task_result = None
+        if step.type == "task-dev":
+            task_result = self.task_dev.ensure_done_ready(wf, step)
+
         ids, new_steps, user_confirm, result_data = self._generate_successors(
             wf,
             step,
@@ -886,7 +999,7 @@ class WorkflowManager:
         step.finished = True
         step.execution_status = "completed"
         step.ended_at = self._occurred_at()
-        stored_result_data = result_data if step.type == "task-dev" else None
+        stored_result_data = task_result if step.type == "task-dev" else None
         step.result_data = stored_result_data
 
         if ids and self._needs_user_confirm(wf, user_confirm):
@@ -899,7 +1012,7 @@ class WorkflowManager:
             )
             wf.status = "awaiting_user_confirm"
             self._save(wf)
-            return {
+            result = {
                 "ok": True,
                 "step_finished": True,
                 "state": "awaiting_user_confirm",
@@ -909,11 +1022,16 @@ class WorkflowManager:
                 "attempt": step.attempt,
                 "started_at": step.started_at,
                 "ended_at": step.ended_at,
-                "result_data": stored_result_data,
                 "message": "当前步骤已完成，等待用户确认是否放行进入下一步。",
                 "pending_user_confirm": self._pending_user_confirm_payload(wf),
                 "commands": self._user_confirm_commands(wf),
             }
+            if step.type != "task-dev":
+                result["result_data"] = stored_result_data
+            if step.type == "task-dev":
+                self.task_dev.mark_completed(wf, step)
+                result["task_dev"] = self.task_dev.guidance(wf, step)
+            return result
 
         step.next = ids
         wf.steps.extend(new_steps)
@@ -924,7 +1042,7 @@ class WorkflowManager:
             wf.status = "in_progress"
 
         self._save(wf)
-        return {
+        result = {
             "ok": True,
             "step_finished": True,
             "state": wf.status,
@@ -933,8 +1051,13 @@ class WorkflowManager:
             "attempt": step.attempt,
             "started_at": step.started_at,
             "ended_at": step.ended_at,
-            "result_data": stored_result_data,
         }
+        if step.type != "task-dev":
+            result["result_data"] = stored_result_data
+        if step.type == "task-dev":
+            self.task_dev.mark_completed(wf, step)
+            result["task_dev"] = self.task_dev.guidance(wf, step)
+        return result
 
     def _needs_user_confirm(self, wf: Workflow, user_confirm: str) -> bool:
         if user_confirm == "must":
@@ -1032,6 +1155,8 @@ class WorkflowManager:
         edge = self.templates[parent.type]["edge"]
         kind = edge.get("kind", "terminal")
         if kind == "terminal":
+            if parent.type == "task-dev":
+                return [], [], "skip", None
             data = parse_data(data_raw) if parent.data_schema else None
             _validate_data_schema(data, parent.data_schema)
             return [], [], "skip", data

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import time
+import uuid
+from datetime import UTC, datetime, timedelta
 
 from conftest import (
     SECOND_MESSAGE_ID,
+    STARTED_AT,
     STEP_COMPLETED_AT,
     UPDATED_AT,
     WORKFLOW_ID,
@@ -48,6 +51,7 @@ def test_overview_and_filter_options_use_message_dimensions(client):
 
     period = client.get("/api/v1/dashboard/overview").json()["period"]
     assert period["workflow_runs"] == 1
+    assert period["workflow_runs_by_entry"] == {"ar": 0, "sr": 0}
     assert period["active_users"] == 2
     assert period["steps"] == 2
     assert period["dev_effective_lines"] == 2
@@ -95,11 +99,48 @@ def test_workflow_list_and_detail_include_participants_steps_and_milliseconds(cl
     assert isinstance(row["started_at"], int)
     assert len(row["participants"]) == 2
     assert row["furthest_step_type"] == "review"
+    assert row["workflow_type"] == "unknown"
     assert "project_display_name" not in row
 
     detail = client.get(f"/api/v1/workflows/{WORKFLOW_ID}").json()
     assert [row["step_type"] for row in detail["steps"]] == ["task-dev", "review"]
     assert detail["steps"][0]["file_status"] == "confirmed"
+    assert detail["workflow"]["workflow_type"] == "unknown"
+
+
+def test_overview_and_workflow_rows_report_entry_type(client):
+    ar_workflow = uuid.UUID("66666666-6666-4666-8666-666666666666")
+    sr_workflow = uuid.UUID("77777777-7777-4777-8777-777777777777")
+    ar_payload = message(
+        message_id=uuid.UUID("66666666-6666-4666-8666-666666666661"),
+        workflow_id=ar_workflow,
+        entry="ar",
+        step_type="ar-init",
+        with_file=False,
+    )
+    sr_payload = message(
+        message_id=uuid.UUID("77777777-7777-4777-8777-777777777771"),
+        workflow_id=sr_workflow,
+        entry="sr",
+        ar=None,
+        step_type="sr-init",
+        with_file=False,
+    )
+    assert sync(client, ar_payload).status_code == 200
+    assert sync(client, sr_payload).status_code == 200
+
+    period = client.get("/api/v1/dashboard/overview").json()["period"]
+    assert period["workflow_runs_by_entry"] == {"ar": 1, "sr": 1}
+
+    rows = client.get("/api/v1/dashboard/workflows").json()["items"]
+    assert {row["workflow_type"] for row in rows} == {"ar", "sr"}
+
+
+def test_missing_entry_is_inferred_from_first_step(client):
+    payload = message(step_type="ar-init", with_file=False)
+    assert sync(client, payload).status_code == 200
+    detail = client.get(f"/api/v1/workflows/{WORKFLOW_ID}").json()
+    assert detail["workflow"]["workflow_type"] == "ar"
 
 
 def test_attribution_list_supports_filters_and_pagination(client):
@@ -131,9 +172,14 @@ def test_attribution_list_supports_filters_and_pagination(client):
 
 def test_trends_fill_empty_days_and_invalid_queries_are_stable(client):
     seed(client)
+    started_date = datetime.fromtimestamp(STARTED_AT / 1000, UTC).date()
     trends = client.get(
         "/api/v1/dashboard/trends",
-        params={"from": "2026-07-14", "to": "2026-07-16", "granularity": "day"},
+        params={
+            "from": (started_date - timedelta(days=1)).isoformat(),
+            "to": (started_date + timedelta(days=1)).isoformat(),
+            "granularity": "day",
+        },
     ).json()
     assert len(trends["points"]) == 3
     assert sum(row["workflow_runs"] for row in trends["points"]) == 1
@@ -168,3 +214,117 @@ def test_deployed_portal_read_aliases_remain_compatible(client):
     ).json()
     assert users["total"] == 1
     assert users["items"][0]["git_user_email"] == "developer@example.com"
+
+
+def await_attribution(client, workflow_id=WORKFLOW_ID):
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        detail = client.get(f"/api/v1/workflows/{workflow_id}").json()
+        if detail["steps"][0]["attribution_status"] == "finalized_match":
+            return
+        time.sleep(0.01)
+    raise AssertionError("attribution did not reach 'finalized_match'")
+
+
+def test_components_summary_returns_all_configured_components(client):
+    seed(client)
+    response = client.get("/api/v1/dashboard/components").json()
+    assert response["unassigned_component_id"] == "__unassigned__"
+    assert response["total_components"] == 1
+    assert response["used_components"] == 1
+    item = response["items"][0]
+    assert item["component_id"] == "example-component"
+    assert item["name"] == "示例组件"
+    assert item["se"] == "张三"
+    assert item["used_aaw"] is True
+    assert item["effective_lines"] == 2
+    assert item["repos"] == ["team/example-service"]
+
+
+def test_components_summary_sums_match_overview_effective_lines(client):
+    seed(client)
+    components = client.get("/api/v1/dashboard/components").json()
+    period = client.get("/api/v1/dashboard/overview").json()["period"]
+    assert sum(row["effective_lines"] for row in components["items"]) == (
+        period["dev_effective_lines"]
+    )
+
+
+def test_components_summary_buckets_unregistered_repository(client):
+    seed(client)
+    orphan = message(
+        message_id=uuid.UUID("44444444-4444-4144-8444-444444444444"),
+        workflow_id=uuid.UUID("55555555-5555-4555-8555-555555555555"),
+        repository="team/unregistered",
+        step_type="review",
+        with_file=False,
+    )
+    assert sync(client, orphan).status_code == 200
+
+    response = client.get("/api/v1/dashboard/components").json()
+    assert response["total_components"] == 2
+    unassigned = response["items"][-1]
+    assert unassigned["component_id"] == "__unassigned__"
+    assert unassigned["name"] == "未归类组件"
+    assert unassigned["se"] is None
+    assert unassigned["used_aaw"] is True
+    assert unassigned["effective_lines"] == 0
+    assert unassigned["repos"] == ["team/unregistered"]
+
+
+def test_used_aaw_ignores_time_filter(client):
+    seed(client)
+    response = client.get(
+        "/api/v1/dashboard/components",
+        params={"from": "2099-01-01", "to": "2099-01-31"},
+    ).json()
+    item = response["items"][0]
+    assert item["effective_lines"] == 0
+    assert item["attribution_rate_80"] is None
+    assert item["used_aaw"] is True
+    assert response["used_components"] == 1
+
+
+def test_attribution_rate_80_is_weighted_and_null_when_no_lines(client):
+    empty = client.get("/api/v1/dashboard/components").json()["items"][0]
+    assert empty["effective_lines"] == 0
+    assert empty["attribution_rate_80"] is None
+    assert empty["used_aaw"] is False
+
+    seed(client)
+    await_attribution(client)
+    item = client.get("/api/v1/dashboard/components").json()["items"][0]
+    # The stub attributes every effective line, so the weighted rate is exactly 1.0.
+    assert item["effective_lines"] == 2
+    assert item["attribution_rate_80"] == 1.0
+
+
+def test_development_dashboard_keeps_effective_lines_as_the_rate_denominator(client):
+    seed(client)
+    await_attribution(client)
+
+    period = client.get("/api/v1/dashboard/overview").json()["period"]
+    project = client.get("/api/v1/dashboard/projects").json()["items"][0]
+    trend = next(
+        point
+        for point in client.get("/api/v1/dashboard/trends").json()["points"]
+        if point["dev_effective_lines"]
+    )
+
+    assert period["attribution_rate_80"] == 1.0
+    assert project["attribution_rate_80"] == 1.0
+    assert trend["attributed_lines_80"] / trend["dev_effective_lines"] == 1.0
+    assert "mr_adoption_rate_80" not in period
+
+
+def test_testing_dashboard_exposes_components_endpoint(client):
+    seed(client)
+    response = client.get("/api/v1/testing/dashboard/components")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_components"] == 1
+    item = payload["items"][0]
+    assert item["component_id"] == "example-component"
+    # AAW telemetry must not mark the component as used on the testing dashboard.
+    assert item["used_aaw"] is False
+    assert payload["used_components"] == 0

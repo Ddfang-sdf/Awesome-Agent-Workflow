@@ -1,0 +1,53 @@
+# AAW 遥测配置（内置默认值）
+#
+# 覆盖方式（优先级从高到低）：
+#   1. 环境变量 AAW_TELEMETRY_ENABLED（仅控制开关）
+#   2. 项目级配置 <仓库根>/.aaw/telemetry.yaml，按 key 整体替换本文件同名 key
+#   3. 本文件
+#
+# 本文件随客户端自动更新被覆盖，不要在此处改配置；改动写到项目级配置。
+
+# 是否上报打点数据。false 时 CLI 不构造消息、不生成代码快照、不发起任何请求。
+enabled: true
+
+filters:
+  # 单文件大小上限（字节），超过则不进入快照
+  max_file_bytes: 10485760
+
+  # 整目录排除：命中的目录及其全部子树不进入快照，也不参与 Diff 和代码统计。
+  # 路径锚定仓库根，用 / 分隔，可写多段（如 src/generated）；匹配忽略大小写。
+  # 注意：本项与其它 filters 键不同，项目级配置是【追加】而非整体替换。
+  #   追加：在 <仓库根>/.aaw/telemetry.yaml 写 excluded_dirs: ['data'] 即在下列清单外再排除 data
+  #   取消：写 '!vendor' 可把下列内置项移出排除清单，让该目录恢复正常上报
+  excluded_dirs:
+    - node_modules
+    - dist
+    - build
+    - target
+    - .venv
+    - venv
+    - __pycache__
+    - .next
+    - vendor
+    - .sdd
+    - .aaw
+    - .codehub
+    - .codemate
+    - .build
+    - .claude
+    - .idea
+
+  # 文件名命中任一正则即排除（Python 正则，忽略大小写）
+  sensitive_names:
+    - '(^|[._/-])\.env($|[._/-])'
+    - '(^|[._/-]).*(?:secret|credential|token|password).*($|[._/-])'
+    - '(^|[._/-]).*\.(?:pem|key)($|[._/-])'
+
+  # 文件内容命中任一正则即排除（Python 正则，按字节匹配，忽略大小写）
+  sensitive_contents:
+    - '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+    - '(?:password|api[_-]?key|access[_-]?token)\s*[:=]'
+    - 'AKIA[0-9A-Z]{16}'
+
+  # 生成上传 Diff 时排除的后缀（快照仍包含，只是不出现在最终 Diff 中）
+  diff_excluded_suffixes: ['.md', '.markdown', '.mdown', '.mkd', '.log']

@@ -694,9 +694,12 @@ body > main.stage { z-index: 0; }
   white-space: nowrap;
 }
 .ledger th.th-name { text-align: left; }
-.ledger th.th-num { cursor: pointer; user-select: none; }
-.ledger th.th-num:hover { color: var(--iris); }
-.ledger th.th-num[data-active]::after {
+.ledger th.th-num,
+.ledger thead th[data-comp-sort] { cursor: pointer; user-select: none; }
+.ledger th.th-num:hover,
+.ledger thead th[data-comp-sort]:hover { color: var(--iris); }
+.ledger th.th-num[data-active]::after,
+.ledger thead th[data-comp-sort][data-active]::after {
   content: attr(data-active);
   margin-left: 5px;
   color: var(--iris);
@@ -909,6 +912,9 @@ body > main.stage { z-index: 0; }
 .badge--active   { color: var(--grass);     background: rgba(18, 196, 107, .12); }
 .badge--stalled  { color: var(--tangerine); background: rgba(255, 122, 26, .13); }
 .badge--completed{ color: var(--iris);      background: rgba(75, 63, 228, .11); }
+.badge--entry-ar { color: var(--iris);      background: rgba(75, 63, 228, .11); }
+.badge--entry-sr { color: var(--grass);     background: rgba(18, 196, 107, .12); }
+.badge--entry-unknown { color: var(--ink-mute); background: rgba(154, 160, 172, .14); }
 .step-chip {
   font-family: var(--mono);
   font-size: 11.5px;
@@ -921,16 +927,19 @@ body > main.stage { z-index: 0; }
 }
 .th-time { text-align: left !important; }
 .wf-time { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); text-align: left; }
+.ledger--wf tbody td:nth-child(2),
+.ledger--wf tbody td.wf-time { text-align: left; }
 
 /* column sizing — keep numeric columns tight so headers sit over their data,
-   let the three text columns share the remaining width. */
+   let the text columns share the remaining width. */
 .ledger--wf { table-layout: fixed; }
-.ledger--wf th:nth-child(1), .ledger--wf td:nth-child(1) { width: 22%; }
-.ledger--wf th:nth-child(2), .ledger--wf td:nth-child(2) { width: 20%; }
-.ledger--wf th:nth-child(3), .ledger--wf td:nth-child(3) { width: 18%; }
-.ledger--wf th:nth-child(4), .ledger--wf td:nth-child(4),
-.ledger--wf th:nth-child(5), .ledger--wf td:nth-child(5) { width: 11%; }
-.ledger--wf th:nth-child(6), .ledger--wf td:nth-child(6) { width: 18%; }
+.ledger--wf th:nth-child(1), .ledger--wf td:nth-child(1) { width: 20%; }
+.ledger--wf th:nth-child(2), .ledger--wf td:nth-child(2) { width: 12%; }
+.ledger--wf th:nth-child(3), .ledger--wf td:nth-child(3) { width: 17%; }
+.ledger--wf th:nth-child(4), .ledger--wf td:nth-child(4) { width: 15%; }
+.ledger--wf th:nth-child(5), .ledger--wf td:nth-child(5),
+.ledger--wf th:nth-child(6), .ledger--wf td:nth-child(6) { width: 10%; }
+.ledger--wf th:nth-child(7), .ledger--wf td:nth-child(7) { width: 16%; }
 .ledger--wf .wf-id span,
 .ledger--wf .wf-who span,
 .ledger--wf .step-chip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1037,3 +1046,69 @@ body > main.stage { z-index: 0; }
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+/* ── Board tabs (采纳概览 / 组件使用情况) ────────────── */
+.tabs { display: inline-flex; gap: 6px; margin-bottom: clamp(18px, 2.5vw, 28px); }
+.tabs button {
+  border: 1.5px solid var(--edge-2);
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.tabs button:hover { color: var(--iris); border-color: var(--iris); }
+.tabs button[aria-selected="true"] {
+  color: #fff;
+  background: linear-gradient(135deg, var(--iris), var(--iris-2));
+  border-color: transparent;
+  box-shadow: 0 6px 16px -8px rgba(75, 63, 228, .7);
+}
+/* 面板显隐：.card/.hero 等有非 none 的 display，会覆盖 hidden 的 UA 默认
+   样式，!important 保证切 Tab 时隐藏真正生效。 */
+[data-panel][hidden] { display: none !important; }
+
+/* ── 组件使用情况面板 ──────────────────────────────── */
+.table-wrap--scroll { max-height: min(620px, 68vh); overflow-y: auto; }
+.ledger--comp thead th { position: sticky; top: 0; background: var(--paper-2); z-index: 1; }
+.ledger--comp tr.comp-row--unassigned td { color: var(--ink-mute); font-style: italic; }
+.comp-search {
+  height: 32px;
+  min-width: 200px;
+  padding: 0 10px;
+  border: 1px solid var(--edge-2);
+  border-radius: 8px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font: 13px var(--body);
+  outline: none;
+}
+.comp-search:focus { border-color: var(--iris); box-shadow: 0 0 0 3px rgba(75, 63, 228, .1); }
+.used-yes { color: var(--grass); font-weight: 700; }
+.used-no { color: var(--ink-mute); }
+/* 与 .ledger--steps/.ledger--wf 相同的覆盖：基础 .td-name 的 display:flex
+   会把单元格拉出表格列模型，多列文本时表头与表体会错位，恢复 table-cell。 */
+.ledger--comp .td-name::before { display: none; }
+.ledger--comp .td-name { display: table-cell; vertical-align: middle; }
+
+/* 组件板块内的表格级筛选（作用域仅限该表，与顶部全局筛选区分）。
+   .card__head 已是 flex + space-between + gap + wrap，此处只补分组与小号尺寸。 */
+.comp-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.multi--sm {
+  min-width: 132px;
+  width: 156px;
+  min-height: 32px;
+  padding: 4px 10px;
+}
+.multi--sm .multi__ph { font-size: 13px; }
+.segs--sm button { padding: 5px 11px; font-size: 12.5px; }

@@ -27,6 +27,7 @@ class DevelopmentContext(BaseModel):
     head_sha_start: str = Field(max_length=64)
     head_sha_end: str | None = Field(default=None, max_length=64)
     completed_at: datetime | None = None
+    started_at: datetime | None = None
 
 
 class TelemetryContext(BaseModel):
@@ -36,6 +37,7 @@ class TelemetryContext(BaseModel):
     sr: str = Field(min_length=1, max_length=128)
     ar: str | None = Field(default=None, max_length=128)
     user_email: str = Field(min_length=1, max_length=320)
+    user_name: str = Field(min_length=1, max_length=200)
 
 
 class DiffPayload(BaseModel):
@@ -88,6 +90,11 @@ class AttributionResult(BaseModel):
     dev_effective_lines: int = Field(ge=0)
     attributed_lines_80: int = Field(ge=0)
     attributed_lines_90: int = Field(ge=0)
+    mr_commit_lines: int | None = Field(
+        default=None,
+        ge=0,
+        description="匹配到的 MR 新增代码行数；归因服务未提供时为 null",
+    )
     confidence: float = Field(ge=0, le=1)
     quality_flags: list[str] = Field(default_factory=list)
     matched_mr_iid: str | None = None

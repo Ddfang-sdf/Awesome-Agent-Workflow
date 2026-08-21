@@ -3,13 +3,19 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 
-from aaw_telemetry.config import ProjectEntry, ProjectRegistry, ProjectsDocument, Settings
+from aaw_telemetry.config import (
+    ComponentEntry,
+    ComponentsDocument,
+    ProjectEntry,
+    ProjectRegistry,
+    Settings,
+)
 from aaw_telemetry.database import Base
 from aaw_telemetry.main import create_app
 from aaw_telemetry.services.attribution_service import (
@@ -21,7 +27,12 @@ from aaw_telemetry.services.attribution_service import (
 WORKFLOW_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 MESSAGE_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 SECOND_MESSAGE_ID = uuid.UUID("33333333-3333-4333-8333-333333333333")
-STARTED_AT = 1784077200000
+STARTED_AT = int(
+    (
+        datetime.now(UTC).replace(hour=1, minute=0, second=0, microsecond=0) - timedelta(days=3)
+    ).timestamp()
+    * 1000
+)
 STEP_STARTED_AT = STARTED_AT + 60_000
 STEP_COMPLETED_AT = STARTED_AT + 1_800_000
 UPDATED_AT = STEP_COMPLETED_AT + 1_000
@@ -47,6 +58,7 @@ class StubAttributionService(AttributionService):
             dev_effective_lines=total,
             attributed_lines_80=total,
             attributed_lines_90=total,
+            mr_commit_lines=total * 2 if has_match else 0,
             confidence=0.8 if has_match else 0.0,
             quality_flags=["mock_attribution", "external_service"],
             matched_mr_iid=mock_iid,
@@ -64,12 +76,18 @@ class StubAttributionService(AttributionService):
 @pytest.fixture
 def projects() -> ProjectRegistry:
     return ProjectRegistry(
-        ProjectsDocument(
-            projects={
-                "team/example-service": ProjectEntry(
-                    canonical_url="git@git.company.com:team/example-service.git",
-                    target_branch="main",
-                    enabled=True,
+        ComponentsDocument(
+            components={
+                "example-component": ComponentEntry(
+                    name="示例组件",
+                    se="张三",
+                    repos={
+                        "team/example-service": ProjectEntry(
+                            canonical_url="git@git.company.com:team/example-service.git",
+                            target_branch="main",
+                            enabled=True,
+                        )
+                    },
                 )
             }
         )
@@ -157,6 +175,7 @@ def message(
     repository: str = "team/example-service",
     sr: str = "SR-1001",
     ar: str | None = "AR-2001",
+    entry: str | None = None,
     step_type: str = "task-dev",
     status: str = "done",
     with_file: bool | None = None,
@@ -178,6 +197,7 @@ def message(
     payload = {
         "message_id": str(message_id),
         "workflow_id": str(workflow_id),
+        "entry": entry,
         "aaw_version": "0.1.0",
         "user_email": user_email,
         "user_name": user_name,

@@ -10,13 +10,34 @@ from typing import Annotated
 import typer
 
 from .models import DataError, WorkflowError
-from .telemetry import TelemetryClient, TelemetryError, TelemetryStore, aaw_version
+from .task_dev import TaskDevError
+from .telemetry import (
+    TelemetryClient,
+    TelemetryError,
+    TelemetryStore,
+    aaw_version,
+    telemetry_config,
+)
 from .update import UpdateError, auto_update_on_entry, consume_handoff, run_update
 from .workflow import WorkflowManager
+
+# Typer renders the epilog with rich: single newlines are collapsed and each
+# blank-line-separated paragraph becomes one rendered line.
+_TELEMETRY_HELP = "\n\n".join(
+    [
+        "遥测开关：打点上报默认开启，关闭方式二选一。",
+        "方式一：设置环境变量 AAW_TELEMETRY_ENABLED=false",
+        "方式二：在 <仓库根>/.aaw/telemetry.yaml 中写 enabled: false",
+        "配置优先级：环境变量 > 项目级 .aaw/telemetry.yaml > 内置默认值。",
+        "关闭后不生成代码快照，也不发起任何上报请求。",
+        "上报地址可用环境变量 AAW_TELEMETRY_ENDPOINT 覆盖。",
+    ]
+)
 
 app = typer.Typer(
     name="aaw",
     help="AAW Workflow CLI",
+    epilog=_TELEMETRY_HELP,
     no_args_is_help=True,
 )
 
@@ -47,9 +68,40 @@ def _get_telemetry() -> TelemetryStore:
     return TelemetryStore(Path.cwd())
 
 
+def _telemetry_enabled() -> bool:
+    # Fail closed: a broken telemetry config warns and stops reporting instead
+    # of breaking the workflow command.
+    try:
+        return telemetry_config(Path.cwd()).enabled
+    except TelemetryError as e:
+        typer.echo(f"telemetry warning: {e}", err=True)
+        return False
+
+
 def _die(msg: str, code: int = 1) -> None:
     typer.echo(msg, err=True)
     raise typer.Exit(code)
+
+
+def _die_task_dev(
+    error: Exception,
+    use_json: bool,
+    mgr: WorkflowManager | None = None,
+    wf=None,
+    step=None,
+) -> None:
+    if use_json:
+        payload = {"ok": False, "error": str(error)}
+        if isinstance(error, TaskDevError) and error.payload:
+            payload.update(error.payload)
+        elif mgr is not None and wf is not None and step is not None:
+            try:
+                payload.update(_task_dev_guidance(mgr, wf, step))
+            except (WorkflowError, TaskDevError):
+                pass
+        _echo_json(payload)
+        raise typer.Exit(1)
+    _die(str(error))
 
 
 def _echo_json(data: dict) -> None:
@@ -245,6 +297,12 @@ def status(
             for s in wf.steps
         ],
     }
+    for item, step in zip(data["steps"], wf.steps):
+        if step.type == "task-dev" and step.execution_status == "running":
+            try:
+                item["task_dev"] = _task_dev_guidance(mgr, wf, step)
+            except (WorkflowError, TaskDevError) as error:
+                item["task_dev"] = {"ok": False, "error": str(error)}
     if use_json:
         _echo_json(data)
     else:
@@ -279,6 +337,7 @@ def next(
         _die(str(e))
 
     telemetry_results = []
+    telemetry_on = _telemetry_enabled()
     for ready_step in mgr.get_ready(wf):
         if ready_step.execution not in {"skill", "prompt"}:
             continue
@@ -289,6 +348,10 @@ def next(
             started_step = mgr.mark_started(wf, ready_step.id, attempt)
         except WorkflowError as e:
             _die(str(e))
+        # `mark_started` above is workflow logic and always runs; the telemetry
+        # snapshot/send below is skipped entirely when reporting is off.
+        if not telemetry_on:
+            continue
         if started_step.type == "task-dev":
             try:
                 _get_telemetry().dev_started(wf, started_step, attempt)
@@ -311,7 +374,12 @@ def next(
             telemetry_result.update({"status": "failed", "error": str(e)})
         telemetry_results.append(telemetry_result)
 
-    payload = mgr.build_next_payload(wf)
+    try:
+        payload = mgr.build_next_payload(wf)
+    except TaskDevError as error:
+        _die_task_dev(error, use_json)
+    except WorkflowError as error:
+        _die(str(error))
     payload["telemetry"] = telemetry_results
     if use_json:
         _echo_json(payload)
@@ -355,7 +423,16 @@ def next(
         telemetry_result = telemetry_by_step.get(s["id"])
         if telemetry_result:
             typer.echo(f"      telemetry: {telemetry_result['status']}")
-        typer.echo(f"      done: {s['commands']['done']}")
+        if "done" in s.get("commands", {}):
+            typer.echo(f"      done: {s['commands']['done']}")
+        elif s.get("task_dev"):
+            guidance = s["task_dev"]["guidance"]
+            typer.echo(f"      phase: {guidance['current_phase']} — {guidance['objective']}")
+
+
+def _task_dev_guidance(mgr: WorkflowManager, wf, step) -> dict:
+    data_file = mgr._data_file(wf, step)
+    return mgr.task_dev.guidance(wf, step, mgr._done_argv(wf, step, data_file))
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +449,7 @@ def done(
 ):
     """标记 step 完成并按配置生成后继。"""
     mgr = _get_manager()
+    wf = step = None
     try:
         if data_raw and data_file:
             raise WorkflowError("--data 和 --data-file 不能同时使用")
@@ -382,29 +460,35 @@ def done(
         if step is None:
             raise WorkflowError(f"step {step_id} does not exist")
         result = mgr.mark_done(wf, step_id, data_raw)
+    except TaskDevError as e:
+        _die_task_dev(e, use_json, mgr, wf, step)
     except OSError as e:
         _die(f"--data-file 读取失败: {e}")
     except (WorkflowError, DataError) as e:
+        if step is not None and step.type == "task-dev":
+            _die_task_dev(e, use_json, mgr, wf, step)
         _die(str(e))
 
     # `next` persists the actual start timestamp; `done` sends the terminal Step.
-    store = _get_telemetry()
-    dev_state = None
-    telemetry_succeeded = False
-    try:
-        file = None
-        if step.type == "task-dev":
-            dev_state = store.dev_finished(wf, step, step.attempt)
-            file = dev_state["file"]
-        message = store.step_message(wf, step, "done", file=file)
-        result["telemetry"] = TelemetryClient(Path.cwd()).send(message, dev_state)
-        telemetry_succeeded = True
-    except (OSError, TelemetryError) as e:
-        typer.echo(f"telemetry warning: {e}", err=True)
-        result["telemetry"] = {"status": "failed", "error": str(e)}
-    finally:
-        if step.type == "task-dev" and telemetry_succeeded:
-            store.cleanup_step(wf, step, step.attempt, dev_state)
+    if _telemetry_enabled():
+        store = None
+        dev_state = None
+        telemetry_succeeded = False
+        try:
+            store = _get_telemetry()
+            file = None
+            if step.type == "task-dev":
+                dev_state = store.dev_finished(wf, step, step.attempt)
+                file = dev_state["file"]
+            message = store.step_message(wf, step, "done", file=file)
+            result["telemetry"] = TelemetryClient(Path.cwd()).send(message, dev_state)
+            telemetry_succeeded = True
+        except (OSError, TelemetryError) as e:
+            typer.echo(f"telemetry warning: {e}", err=True)
+            result["telemetry"] = {"status": "failed", "error": str(e)}
+        finally:
+            if store is not None and step.type == "task-dev" and telemetry_succeeded:
+                store.cleanup_step(wf, step, step.attempt, dev_state)
 
     if use_json:
         _echo_json(result)

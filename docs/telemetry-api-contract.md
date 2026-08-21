@@ -548,20 +548,53 @@ D0 状态文件包含：
 
 ### 7.4 文件过滤
 
-快照阶段排除：
+快照阶段的过滤规则来自配置文件 `skills/aaw-workflow/scripts/cli/telemetry_config.yaml` 的 `filters` 段，可由项目级配置 `<仓库根>/.aaw/telemetry.yaml` 按 key 整体替换（同名 key 覆盖，列表整体替换、不做深度合并）。默认规则如下：
 
 - 无法读取的文件；
-- 单文件超过 10 MiB；
-- 文件名疑似包含 `.env/secret/credential/token/password`；
-- `.pem`、`.key`；
-- 内容命中私钥头、password、api key、access token、AWS AKIA 等规则。
+- 单文件超过 `max_file_bytes`（默认 10 MiB）；
+- 文件名命中 `sensitive_names` 任一正则：疑似包含 `.env/secret/credential/token/password`；
+- 文件名命中 `.pem`、`.key`；
+- 内容命中 `sensitive_contents` 任一正则：私钥头、password、api key、access token、AWS AKIA 等规则；
+- 位于 `excluded_dirs` 命中目录及其全部子树内的文件。
+
+`excluded_dirs` 为整目录排除：目录路径锚定仓库根（不是任意嵌套位置命中），用 `/` 分隔、可写多段（如 `src/generated`），匹配忽略大小写；命中后该目录下的整个子树不进入快照，因此也不进入 D0/D1、不进 Diff、不参与代码统计。每被排除一个目录，在 `quality_flags` 里记一条 `dir_excluded:<目录名>`（按目录名记，同一目录下多个文件只占一条）。内置默认清单共 16 项：
+
+```yaml
+node_modules
+dist
+build
+target
+.venv
+venv
+__pycache__
+.next
+vendor
+.sdd
+.aaw
+.codehub
+.codemate
+.build
+.claude
+.idea
+```
+
+与其它 filters 键不同，`excluded_dirs` 的项目级配置是**追加**而非整体替换：在 `<仓库根>/.aaw/telemetry.yaml` 写 `excluded_dirs: ['data']` 会在内置清单之外再排除 `data`；写 `'!vendor'` 可把内置项 `vendor` 移出排除清单，让该目录恢复正常上报（`!` 前缀既可用于取消内置项，也可取消项目自身新增的正项，removals 一律最后生效）。这是唯一与「按 key 整体替换」语义不同的 filters 键。
+
+快照阶段过滤按以下顺序生效（命中即停止，只记本规则的 flag）：
+
+1. `.aaw/telemetry/` 下的文件直接跳过；
+2. 命中 `excluded_dirs`：记一条 `dir_excluded:<目录名>` flag；
+3. 文件名命中 `sensitive_names`：记 `sensitive_file_excluded:<文件名>`；
+4. 读取文件（符号链接记录链接目标路径本身，不读取目标内容）；
+5. 内容命中 `sensitive_contents`：记 `sensitive_file_excluded:<文件名>`；
+6. 超过 `max_file_bytes`：记 `large_file_excluded:<文件名>`。
 
 生成上传 Diff 时进一步排除：
 
-- Markdown：`.md/.markdown/.mdown/.mkd`；
+- Markdown：`diff_excluded_suffixes`（默认 `.md/.markdown/.mdown/.mkd`）；
 - Git 判断为二进制的变化。
 
-需要注意：Markdown 和二进制是在 Diff 选择阶段排除，它们可能已经进入本地 D0/D1 bare repo；只是不会出现在最终上传的 Diff 中。
+需要注意：Markdown 和二进制是在 Diff 选择阶段排除，它们可能已经进入本地 D0/D1 bare repo；只是不会出现在最终上传的 Diff 中。其中 Git 判定的二进制排除不可配置。被 `excluded_dirs` 排除的目录则从快照阶段起就不存在，更不会出现在 Diff 中。
 
 ### 7.5 D1 与 Diff
 
@@ -700,6 +733,18 @@ CLI 需要收到：
 - 10～50 MiB Diff 会在消息接受后上传失败；
 - 没有符合采集规则的代码变化时，CLI 会生成空 Diff，而服务端会拒绝；
 - 两种情况都会留下本地临时文件和服务端等待对象状态。
+
+### 8.6 配置优先级
+
+遥测开关与过滤规则采用三层配置，优先级从高到低：
+
+1. 环境变量 `AAW_TELEMETRY_ENABLED`（仅控制开关，取值 `1/true/yes/on` 或 `0/false/no/off`，忽略大小写与空白；非法取值按配置错误处理）；
+2. 项目级配置 `<仓库根>/.aaw/telemetry.yaml`（按 key 整体替换内置同名 key，列表整体替换、不做深度合并）；
+3. 内置默认配置 `skills/aaw-workflow/scripts/cli/telemetry_config.yaml`。
+
+例外：`filters.excluded_dirs` 采用追加语义，项目级配置的条目会并入内置清单，而不是整体替换；条目写 `!<目录>` 表示从最终清单中移除该目录（详见 7.4）。
+
+注意：`.aaw/` 已被 gitignore，项目级配置不入库，属于本机/本仓库的设置；内置配置文件随客户端自动更新被整体覆盖，修改应写到项目级配置。
 
 ## 9. 当前失败行为
 
@@ -1025,10 +1070,14 @@ quality_flags: ["shared_worktree", "possible_overlap"]
 
 ### 11.14 配置与安全
 
+遥测开关已实现：
+
+- 默认 `enabled: true`，可通过项目级配置文件（`<仓库根>/.aaw/telemetry.yaml` 写 `enabled: false`）或环境变量 `AAW_TELEMETRY_ENABLED=false` 关闭；
+- 关闭后 CLI 不构造消息、不生成代码快照、不发起任何请求；配置损坏时按 fail-closed 处理：告警并停止上报，不阻断工作流命令。
+
 建议新增：
 
 ```text
-AAW_TELEMETRY_ENABLED=false|true
 AAW_TELEMETRY_MODE=metadata|diff
 AAW_TELEMETRY_ENDPOINT=https://...
 AAW_TELEMETRY_TOKEN=...
